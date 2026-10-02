@@ -1,3 +1,20 @@
+#!/usr/bin/env bash
+set -e
+
+echo "==================================================="
+echo " 🔧 Fix Prisma Schema + Push"
+echo "==================================================="
+
+cd "$(dirname "$0")" 2>/dev/null || true
+[ -f "package.json" ] || { echo "❌ project root me chalao"; exit 1; }
+echo "📁 $(pwd)"
+
+# ---------- 1. Multi-line Prisma schema ----------
+echo ""
+echo "📝 Rewriting prisma/schema.prisma (proper multi-line)..."
+mkdir -p prisma
+
+cat > prisma/schema.prisma <<'PRISMA'
 generator client {
   provider = "prisma-client-js"
 }
@@ -103,3 +120,67 @@ model AuditLog {
   meta      Json?
   createdAt DateTime @default(now())
 }
+PRISMA
+
+sed -i 's/\r$//' prisma/schema.prisma
+echo "✅ schema.prisma rewritten"
+
+# ---------- 2. Verify no CRLF, no single-line blocks ----------
+echo ""
+echo "🔍 Checking format..."
+if grep -q 'generator client {' prisma/schema.prisma && \
+   grep -q '^  provider = "prisma-client-js"' prisma/schema.prisma && \
+   grep -q '^}' prisma/schema.prisma; then
+  echo "✅ Multi-line format OK"
+else
+  echo "⚠️  Format check needs manual review"
+fi
+
+# Show first 12 lines
+echo ""
+echo "--- First 12 lines ---"
+head -12 prisma/schema.prisma
+echo "--- End ---"
+
+# ---------- 3. Git ----------
+echo ""
+echo "🌿 Git..."
+if [ ! -d ".git" ]; then git init; git branch -M main; fi
+
+REPO_URL="https://github.com/dipenzala/emailcampaign.git"
+if git remote get-url origin >/dev/null 2>&1; then
+  git remote set-url origin "$REPO_URL"
+else
+  git remote add origin "$REPO_URL"
+fi
+
+git config user.email "63999328+dipenzala@users.noreply.github.com"
+git config user.name "Dipen Zala"
+
+git add -A
+if git diff --cached --quiet; then
+  echo "ℹ️  No changes."
+else
+  git commit -m "Fix: Prisma schema proper multi-line format"
+  echo "✅ Committed"
+fi
+
+echo ""
+echo "🚀 Pushing..."
+git push -u origin main
+
+echo ""
+echo "==================================================="
+echo " ✅ PUSHED"
+echo "==================================================="
+echo ""
+echo "📊 Vercel auto-rebuild shuru hoga (2-3 min):"
+echo "   https://vercel.com/certwinx/emailcampaign/deployments"
+echo ""
+echo "⚠️  NEON DB PUSH abhi karo:"
+echo ""
+echo "  export DATABASE_URL='postgresql://neondb_owner:npg_XXX@ep-xxx.ap-southeast-1.aws.neon.tech/neondb?sslmode=require'"
+echo "  npx prisma db push"
+echo ""
+echo "Neon URL: https://console.neon.tech → Connection String → Prisma"
+echo "==================================================="
