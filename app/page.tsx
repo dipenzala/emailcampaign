@@ -1,166 +1,154 @@
-'use client';
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
-type ContactsSummary = { totalRows:number; valid:number; invalid:number; duplicates:number; suppressed:number; contacts:any[] };
-
-export default function Home() {
-  const [file, setFile] = useState<File|null>(null);
-  const [summary, setSummary] = useState<ContactsSummary|null>(null);
-  const [html, setHtml] = useState('');
-  const [subject, setSubject] = useState('Hello from our team');
-  const [campaignName, setCampaignName] = useState('Campaign ' + new Date().toISOString().slice(0,10));
-  const [testTo, setTestTo] = useState('');
-  const [senders, setSenders] = useState<any[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState('');
-  const [showPreview, setShowPreview] = useState(false);
-  const router = useRouter();
-
-  useEffect(() => { fetch('/api/senders').then(r=>r.json()).then(setSenders); }, []);
-
-  const upload = async () => {
-    if (!file) return;
-    setBusy(true); setMsg('');
-    const fd = new FormData(); fd.append('file', file);
-    const r = await fetch('/api/contacts/upload', { method:'POST', body: fd });
-    const j = await r.json();
-    if (r.ok) { setSummary(j); setMsg(`✅ ${j.valid} valid email addresses found.`); }
-    else setMsg('❌ ' + (j.error ?? 'Upload failed'));
-    setBusy(false);
-  };
-
-  const sendTest = async () => {
-    setBusy(true); setMsg('');
-    const r = await fetch('/api/test-email', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ to: testTo, subject, html }),
-    });
-    const j = await r.json();
-    setMsg(r.ok ? '✅ Test email sent (id '+j.id+')' : '❌ ' + (j.error ?? 'Failed'));
-    setBusy(false);
-  };
-
-  const startCampaign = async () => {
-    if (!summary) return;
-    setBusy(true); setMsg('');
-    const r = await fetch('/api/campaigns', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        name: campaignName, subject, html,
-        emails: summary.contacts.map(c => c.email),
-      }),
-    });
-    const j = await r.json();
-    if (!r.ok) { setMsg('❌ ' + JSON.stringify(j.error)); setBusy(false); return; }
-    await fetch(`/api/campaigns/${j.id}/start`, { method:'POST' });
-    router.push('/campaigns/' + j.id);
-  };
-
-  const connectedSenders = senders.filter(s => s.status === 'CONNECTED').length;
-  const htmlOk = html.length > 30 && /<html|<body/i.test(html);
-  const canStart = !!summary && summary.valid > 0 && htmlOk && connectedSenders > 0;
-
+export default function Landing() {
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold">📧 Email Campaign</h1>
+    <div className="relative overflow-hidden">
+      {/* Aurora background */}
+      <div className="aurora" aria-hidden />
 
-      {msg && <div className="card text-sm">{msg}</div>}
+      {/* Nav */}
+      <nav className="glass-nav fixed top-0 inset-x-0 z-50">
+        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-2 group">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-violet-500 to-pink-500 group-hover:scale-110 transition" />
+            <span className="font-semibold tracking-tight">EmailCampaign</span>
+          </Link>
+          <div className="flex items-center gap-3">
+            <Link href="/login" className="text-sm text-slate-300 hover:text-white transition">
+              Sign in
+            </Link>
+            <Link href="/login" className="btn btn-primary text-sm">
+              Get started
+            </Link>
+          </div>
+        </div>
+      </nav>
 
-      {/* STEP 1 */}
-      <section className="card">
-        <h2 className="font-semibold mb-3">STEP 1 — Load Contacts</h2>
-        <div className="flex gap-3 items-center flex-wrap">
-          <input type="file" accept=".xlsx,.xls,.csv"
-            onChange={e => setFile(e.target.files?.[0] ?? null)}
-            className="input max-w-xs" />
-          <button className="btn btn-primary" disabled={!file || busy} onClick={upload}>
-            {busy ? '…' : 'IMPORT EXCEL / CSV'}
-          </button>
-          <a href="/api/oauth/google/start?email=sheet" className="btn btn-ghost">Connect Google Sheet (OAuth)</a>
+      {/* Hero */}
+      <section className="relative pt-40 pb-32 px-6">
+        <div className="max-w-5xl mx-auto text-center relative z-10">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 text-xs text-slate-300 mb-8 animate-in shimmer">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            Powered by Gmail API · OAuth 2.0
+          </div>
+
+          <h1 className="text-5xl md:text-7xl lg:text-8xl font-semibold tracking-tight leading-[1.02] animate-in-slow delay-1">
+            Send email
+            <br />
+            <span className="gradient-text">that feels personal.</span>
+          </h1>
+
+          <p className="mt-8 text-lg md:text-xl text-slate-400 max-w-2xl mx-auto leading-relaxed animate-in-slow delay-2">
+            A production-ready campaign platform. Import contacts, paste your HTML,
+            hit send — watch it fly in real-time. No spam, no shortcuts, just clean delivery.
+          </p>
+
+          <div className="mt-12 flex flex-wrap items-center justify-center gap-4 animate-in-slow delay-3">
+            <Link href="/login" className="btn btn-primary text-base px-7 py-3">
+              Start a campaign →
+            </Link>
+            <a href="#features" className="btn btn-ghost text-base px-7 py-3">
+              See features
+            </a>
+          </div>
+
+          <div className="mt-20 text-xs text-slate-500 animate-in-slow delay-4">
+            No credit card · Bring your own Gmail · Free to start
+          </div>
         </div>
 
-        {summary && (
-          <div className="mt-4 grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
-            <Stat label="TOTAL ROWS" value={summary.totalRows} />
-            <Stat label="VALID" value={summary.valid} accent="text-green-400" />
-            <Stat label="INVALID" value={summary.invalid} accent="text-red-400" />
-            <Stat label="DUPLICATES" value={summary.duplicates} accent="text-yellow-400" />
-            <Stat label="SUPPRESSED" value={summary.suppressed} accent="text-orange-400" />
+        {/* Floating preview card */}
+        <div className="relative max-w-4xl mx-auto mt-24 animate-in-slow delay-5">
+          <div className="tilt card !p-0 overflow-hidden shadow-2xl shadow-violet-500/10">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-white/5 bg-white/[0.02]">
+              <span className="w-3 h-3 rounded-full bg-red-400/70" />
+              <span className="w-3 h-3 rounded-full bg-yellow-400/70" />
+              <span className="w-3 h-3 rounded-full bg-green-400/70" />
+              <span className="ml-3 text-xs text-slate-500">campaign · live</span>
+            </div>
+            <div className="p-8 grid grid-cols-2 md:grid-cols-4 gap-4">
+              {[
+                { label: 'SENT', value: '12,847', color: 'text-blue-400' },
+                { label: 'DELIVERED', value: '12,412', color: 'text-emerald-400' },
+                { label: 'PENDING', value: '435', color: 'text-amber-400' },
+                { label: 'FAILED', value: '12', color: 'text-red-400' },
+              ].map((s) => (
+                <div key={s.label} className="bg-white/[0.03] border border-white/5 rounded-xl p-4">
+                  <div className="text-[10px] tracking-widest text-slate-500">{s.label}</div>
+                  <div className={`text-2xl font-semibold mt-1 ${s.color}`}>{s.value}</div>
+                </div>
+              ))}
+            </div>
+            <div className="px-8 pb-8">
+              <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden">
+                <div className="h-full w-[96%] bg-gradient-to-r from-violet-500 via-blue-500 to-emerald-400 rounded-full" />
+              </div>
+              <div className="flex justify-between text-xs text-slate-500 mt-2">
+                <span>Progress</span>
+                <span>96.4%</span>
+              </div>
+            </div>
           </div>
-        )}
-        {summary && (
-          <div className="mt-4 max-h-64 overflow-auto border border-slate-800 rounded-lg">
-            <table className="w-full text-xs">
-              <thead className="bg-slate-800/50 sticky top-0">
-                <tr><th className="text-left p-2">Email</th><th className="text-left p-2">Name</th><th className="text-left p-2">Company</th></tr>
-              </thead>
-              <tbody>
-                {summary.contacts.slice(0,200).map((c,i) => (
-                  <tr key={i} className="border-t border-slate-800">
-                    <td className="p-2">{c.email}</td><td className="p-2">{c.name}</td><td className="p-2">{c.company}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        </div>
       </section>
 
-      {/* STEP 2 */}
-      <section className="card">
-        <h2 className="font-semibold mb-3">STEP 2 — HTML Email</h2>
-        <div className="space-y-3">
-          <input className="input" placeholder="Subject" value={subject} onChange={e=>setSubject(e.target.value)} />
-          <textarea className="input font-mono text-xs" rows={14}
-            placeholder="<!DOCTYPE html>&#10;<html>…</html>"
-            value={html} onChange={e=>setHtml(e.target.value)} />
-          <div className="flex gap-3 flex-wrap">
-            <button className="btn btn-ghost" onClick={()=>setShowPreview(true)} disabled={!html}>PREVIEW HTML</button>
-            <input className="input max-w-xs" placeholder="Test email address" value={testTo} onChange={e=>setTestTo(e.target.value)} />
-            <button className="btn btn-ghost" onClick={sendTest} disabled={!testTo || !html || busy}>SEND TEST</button>
+      {/* Features */}
+      <section id="features" className="relative py-32 px-6">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-20">
+            <h2 className="text-4xl md:text-5xl font-semibold tracking-tight">
+              Everything you need. <span className="gradient-text">Nothing you don't.</span>
+            </h2>
+            <p className="mt-6 text-slate-400 max-w-xl mx-auto">
+              Built with real infrastructure. Postgres, Redis, BullMQ, Gmail API.
+              Runs on Vercel + any Node host.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-6">
+            {[
+              { icon: '🔒', title: 'OAuth 2.0 only', desc: 'We never see your Gmail password. Tokens are AES-256-GCM encrypted at rest.' },
+              { icon: '⚡', title: 'Real-time dashboard', desc: 'Server-sent events stream live counters. Pause, resume, stop — instantly.' },
+              { icon: '📊', title: 'Excel + Sheets', desc: 'Import .xlsx, .csv, or connect Google Sheets. Auto-validate, dedupe, suppress.' },
+              { icon: '🎨', title: 'HTML editor', desc: 'Paste your HTML. Live desktop + mobile preview. Plain-text fallback auto-generated.' },
+              { icon: '🛡️', title: 'Suppression list', desc: 'One-click unsubscribe headers. Bounces, complaints, manual blocks — all respected.' },
+              { icon: '🔄', title: 'Crash-safe queue', desc: 'Redis + BullMQ with idempotency. Restart anywhere without duplicate sends.' },
+            ].map((f, i) => (
+              <div key={f.title} className={`tilt card animate-in-slow delay-${(i % 5) + 1}`}>
+                <div className="text-3xl mb-4 floaty" style={{ animationDelay: `${i * 0.4}s` }}>{f.icon}</div>
+                <h3 className="font-semibold text-lg mb-2">{f.title}</h3>
+                <p className="text-sm text-slate-400 leading-relaxed">{f.desc}</p>
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
-      {/* STEP 3 */}
-      <section className="card">
-        <h2 className="font-semibold mb-3">STEP 3 — Campaign</h2>
-        <div className="space-y-3">
-          <input className="input" placeholder="Campaign name" value={campaignName} onChange={e=>setCampaignName(e.target.value)} />
-          <div className="text-sm text-slate-300">
-            Connected senders: <b className={connectedSenders ? 'text-green-400' : 'text-red-400'}>{connectedSenders}</b>
-            {' · '}Valid recipients: <b>{summary?.valid ?? 0}</b>
-            {' · '}HTML: <b className={htmlOk ? 'text-green-400' : 'text-red-400'}>{htmlOk ? 'READY' : 'MISSING'}</b>
-          </div>
-          <div className="flex gap-3 flex-wrap">
-            <button className="btn btn-primary" disabled={!canStart || busy} onClick={startCampaign}>
-              {canStart ? 'START CAMPAIGN' : 'ADD CONTACTS + HTML EMAIL'}
-            </button>
-            <a href="/senders" className="btn btn-ghost">MANAGE SENDERS</a>
-          </div>
+      {/* CTA */}
+      <section className="relative py-32 px-6">
+        <div className="max-w-3xl mx-auto text-center relative z-10">
+          <h2 className="text-4xl md:text-6xl font-semibold tracking-tight mb-8">
+            Ready to send?
+          </h2>
+          <p className="text-slate-400 mb-12 text-lg">
+            Connect your Gmail. Import contacts. Watch it go.
+          </p>
+          <Link href="/login" className="btn btn-primary text-base px-8 py-3.5">
+            Start free →
+          </Link>
         </div>
       </section>
 
-      {showPreview && (
-        <div className="fixed inset-0 bg-black/80 z-50 p-6 overflow-auto" onClick={()=>setShowPreview(false)}>
-          <div className="bg-white text-black rounded-lg max-w-4xl mx-auto p-4" onClick={e=>e.stopPropagation()}>
-            <div className="text-sm mb-2 flex justify-between"><b>Desktop Preview</b><button onClick={()=>setShowPreview(false)}>✕</button></div>
-            <iframe className="w-full h-[70vh] border" sandbox="" srcDoc={html} />
-            <div className="mt-4 text-sm">Mobile Preview (375px)</div>
-            <iframe className="w-[375px] h-[500px] border mx-auto block" sandbox="" srcDoc={html} />
+      {/* Footer */}
+      <footer className="relative border-t border-white/5 py-10 px-6">
+        <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4 text-sm text-slate-500">
+          <div>© {new Date().getFullYear()} EmailCampaign</div>
+          <div className="flex gap-6">
+            <a href="https://github.com/dipenzala/emailcampaign" className="hover:text-white transition">GitHub</a>
+            <Link href="/login" className="hover:text-white transition">Sign in</Link>
           </div>
         </div>
-      )}
-    </div>
-  );
-}
-
-function Stat({ label, value, accent='' }:{label:string;value:number;accent?:string}) {
-  return (
-    <div className="bg-slate-950 border border-slate-800 rounded-lg p-3">
-      <div className="text-[10px] uppercase text-slate-400">{label}</div>
-      <div className={`text-xl font-bold ${accent}`}>{value.toLocaleString()}</div>
+      </footer>
     </div>
   );
 }

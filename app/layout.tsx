@@ -1,16 +1,15 @@
 import './globals.css';
-export const metadata = { title:'EmailCampaign' };
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: 'EmailCampaign — Send beautifully',
+  description: 'A modern email campaign platform. Gmail OAuth, real-time dashboard, zero spam.',
+};
+
 export default function Root({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>
-        <nav className="border-b border-slate-800 px-6 py-3 flex gap-4 items-center">
-          <a href="/" className="font-bold text-lg">📧 EMAIL CAMPAIGN</a>
-          <a href="/senders" className="text-sm text-slate-300 hover:text-white">Manage Senders</a>
-          <a href="/history" className="text-sm text-slate-300 hover:text-white">History</a>
-        </nav>
-        <main className="p-6 max-w-6xl mx-auto">{children}</main>
-      </body>
+      <body className="min-h-screen antialiased">{children}</body>
     </html>
   );
 }

@@ -1,5 +1,11 @@
-generator client { provider = "prisma-client-js" }
-datasource db { provider = "postgresql"; url = env("DATABASE_URL") }
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
 
 model User {
   id        String   @id @default(cuid())
@@ -25,14 +31,15 @@ model SenderAccount {
 }
 
 model Contact {
-  id          String   @id @default(cuid())
-  email       String   @unique
-  name        String?
-  company     String?
-  phone       String?
-  city        String?
-  custom      Json?
-  createdAt   DateTime @default(now())
+  id         String   @id @default(cuid())
+  email      String   @unique
+  name       String?
+  company    String?
+  phone      String?
+  city       String?
+  custom     Json?
+  createdAt  DateTime @default(now())
+  recipients CampaignRecipient[]
 }
 
 model SuppressionList {
@@ -43,21 +50,21 @@ model SuppressionList {
 }
 
 model Campaign {
-  id            String   @id @default(cuid())
-  name          String
-  subject       String
-  html          String
-  status        String   @default("DRAFT")
-  totalCount    Int      @default(0)
-  sentCount     Int      @default(0)
-  deliveredCount Int     @default(0)
-  failedCount   Int      @default(0)
-  bouncedCount  Int      @default(0)
-  suppressedCount Int    @default(0)
-  createdAt     DateTime @default(now())
-  startedAt     DateTime?
-  completedAt   DateTime?
-  recipients    CampaignRecipient[]
+  id              String   @id @default(cuid())
+  name            String
+  subject         String
+  html            String
+  status          String   @default("DRAFT")
+  totalCount      Int      @default(0)
+  sentCount       Int      @default(0)
+  deliveredCount  Int      @default(0)
+  failedCount     Int      @default(0)
+  bouncedCount    Int      @default(0)
+  suppressedCount Int      @default(0)
+  createdAt       DateTime @default(now())
+  startedAt       DateTime?
+  completedAt     DateTime?
+  recipients      CampaignRecipient[]
 }
 
 model CampaignRecipient {
@@ -76,17 +83,18 @@ model CampaignRecipient {
   failedAt          DateTime?
   campaign          Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   contact           Contact  @relation(fields: [contactId], references: [id])
+
   @@unique([campaignId, contactId])
   @@index([campaignId, status])
 }
 
 model MessageLog {
-  id        String   @id @default(cuid())
-  campaignId String
+  id          String   @id @default(cuid())
+  campaignId  String
   recipientId String
-  level     String
-  message   String
-  createdAt DateTime @default(now())
+  level       String
+  message     String
+  createdAt   DateTime @default(now())
 }
 
 model AuditLog {
