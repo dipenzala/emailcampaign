@@ -3,6 +3,10 @@ import * as XLSX from 'xlsx';
 import { prisma } from '@/lib/prisma';
 import { isValidEmail } from '@/lib/email-validator';
 
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+
 export const runtime = 'nodejs';
 
 export async function POST(req: Request) {

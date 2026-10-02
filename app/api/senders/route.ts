@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 export async function GET() {
   const list = await prisma.senderAccount.findMany({ orderBy: { createdAt: 'asc' } });
   return NextResponse.json(list.map(s => ({

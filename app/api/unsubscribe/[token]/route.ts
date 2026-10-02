@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 export async function GET(_:Request,{params}:{params:{token:string}}) {
   const email = Buffer.from(params.token, 'base64url').toString();
   if (!email) return NextResponse.json({ error:'Invalid' }, { status:400 });

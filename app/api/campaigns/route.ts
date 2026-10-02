@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+
 const Schema = z.object({
   name: z.string().min(1),
   subject: z.string().min(1),

@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 export async function GET(_:Request,{params}:{params:{id:string}}) {
   const c = await prisma.campaign.findUnique({ where:{id:params.id}});
   if (!c) return NextResponse.json({error:'Not found'},{status:404});

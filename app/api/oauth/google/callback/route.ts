@@ -4,6 +4,10 @@ import { google } from 'googleapis';
 import { prisma } from '@/lib/prisma';
 import { encrypt } from '@/lib/crypto';
 
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const code = url.searchParams.get('code');
