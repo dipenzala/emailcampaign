@@ -4,12 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "concurrently -n next,worker -c cyan,magenta \"next dev -p 3000\" \"tsx watch workers/sender.worker.ts\"",
-    "build": "prisma generate && next build",
+    "build": "prisma generate && prisma db push --skip-generate --accept-data-loss && next build",
     "start": "concurrently -n next,worker -c cyan,magenta \"next start -p 3000\" \"tsx workers/sender.worker.ts\"",
     "worker": "tsx workers/sender.worker.ts",
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
-    "postinstall": "prisma generate"
+    "postinstall": "echo skipping-postinstall"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
