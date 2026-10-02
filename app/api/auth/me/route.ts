@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { verifySession } from '@/lib/session';
-export const dynamic = 'force-dynamic';
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 export async function GET() {
   const token = cookies().get('ec_session')?.value;
   const user = verifySession(token);

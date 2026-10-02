@@ -8,7 +8,6 @@ import { renderTemplate } from '@/lib/personalization';
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-
 export async function POST(req: Request) {
   const { to, subject, html } = await req.json();
   if (!to || !subject || !html) return NextResponse.json({ error:'Missing fields' }, { status:400 });

@@ -6,9 +6,6 @@ import { isValidEmail } from '@/lib/email-validator';
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-
-export const runtime = 'nodejs';
-
 export async function POST(req: Request) {
   const form = await req.formData();
   const file = form.get('file') as File | null;

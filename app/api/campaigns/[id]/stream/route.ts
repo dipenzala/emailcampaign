@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma';
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export async function GET(_: Request, { params }: { params: { id: string }}) {
   const encoder = new TextEncoder();

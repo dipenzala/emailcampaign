@@ -5,7 +5,6 @@ import { sendQueue } from '@/lib/queue';
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-
 export async function POST(_: Request, { params }: { params: { id: string }}) {
   const campaign = await prisma.campaign.findUnique({ where: { id: params.id }});
   if (!campaign) return NextResponse.json({ error:'Not found' }, { status:404 });
