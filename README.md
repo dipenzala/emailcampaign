@@ -20,3 +20,4 @@ npm run db:push
 
 # 4. Run (Next.js + worker together)
 npm run dev
+# Deployed Fri, Oct  2, 2026  9:30:28 PM
