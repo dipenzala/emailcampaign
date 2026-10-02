@@ -1,0 +1,97 @@
+generator client { provider = "prisma-client-js" }
+datasource db { provider = "postgresql"; url = env("DATABASE_URL") }
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+}
+
+model SenderAccount {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  displayName   String?
+  accessToken   String?
+  refreshToken  String?
+  tokenExpiry   DateTime?
+  scope         String?
+  status        String   @default("DISCONNECTED")
+  sentToday     Int      @default(0)
+  errors        Int      @default(0)
+  lastSuccessAt DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Contact {
+  id          String   @id @default(cuid())
+  email       String   @unique
+  name        String?
+  company     String?
+  phone       String?
+  city        String?
+  custom      Json?
+  createdAt   DateTime @default(now())
+}
+
+model SuppressionList {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  reason    String
+  createdAt DateTime @default(now())
+}
+
+model Campaign {
+  id            String   @id @default(cuid())
+  name          String
+  subject       String
+  html          String
+  status        String   @default("DRAFT")
+  totalCount    Int      @default(0)
+  sentCount     Int      @default(0)
+  deliveredCount Int     @default(0)
+  failedCount   Int      @default(0)
+  bouncedCount  Int      @default(0)
+  suppressedCount Int    @default(0)
+  createdAt     DateTime @default(now())
+  startedAt     DateTime?
+  completedAt   DateTime?
+  recipients    CampaignRecipient[]
+}
+
+model CampaignRecipient {
+  id                String   @id @default(cuid())
+  campaignId        String
+  contactId         String
+  senderAccountId   String?
+  status            String   @default("QUEUED")
+  providerMessageId String?
+  errorCode         String?
+  errorMessage      String?
+  attemptCount      Int      @default(0)
+  queuedAt          DateTime @default(now())
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  failedAt          DateTime?
+  campaign          Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contact           Contact  @relation(fields: [contactId], references: [id])
+  @@unique([campaignId, contactId])
+  @@index([campaignId, status])
+}
+
+model MessageLog {
+  id        String   @id @default(cuid())
+  campaignId String
+  recipientId String
+  level     String
+  message   String
+  createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  action    String
+  meta      Json?
+  createdAt DateTime @default(now())
+}
