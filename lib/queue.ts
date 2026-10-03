@@ -1,4 +1,4 @@
-import { Queue, QueueOptions } from 'bullmq';
+import { Queue } from 'bullmq';
 import { redis } from './redis';
 
 export const SEND_QUEUE = 'email-send';
@@ -21,7 +21,6 @@ export function getSendQueue(): Queue {
   return _queue;
 }
 
-// Proxy for backward compatibility
 export const sendQueue = new Proxy({} as Queue, {
   get(_t, prop) {
     const q = getSendQueue();

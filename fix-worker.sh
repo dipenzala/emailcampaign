@@ -1,3 +1,23 @@
+#!/usr/bin/env bash
+set -e
+
+echo "==============================================="
+echo " 🔧 Fix: Worker dedicated Redis connection"
+echo "==============================================="
+
+cd "$(dirname "$0")" 2>/dev/null || true
+[ -f "package.json" ] || { echo "❌ project root me chalao"; exit 1; }
+echo "📁 $(pwd)"
+echo ""
+
+# ==========================================
+# 1. Rewrite worker with dedicated connection
+# ==========================================
+echo "📝 Rewriting workers/sender.worker.ts..."
+
+mkdir -p workers
+
+cat > workers/sender.worker.ts <<'EOF'
 import 'dotenv/config';
 import IORedis from 'ioredis';
 import { Worker, Job } from 'bullmq';
@@ -259,3 +279,91 @@ process.on('SIGINT', async () => {
 
 // Prevent exit
 setInterval(() => {}, 1000);
+EOF
+sed -i 's/\r$//' workers/sender.worker.ts
+echo "   ✅ Worker rewritten with dedicated connection"
+
+# ==========================================
+# 2. Verify queue.ts uses same prefix
+# ==========================================
+echo ""
+echo "🔎 Verifying queue.ts..."
+
+cat > lib/queue.ts <<'EOF'
+import { Queue } from 'bullmq';
+import { redis } from './redis';
+
+export const SEND_QUEUE = 'email-send';
+export const QUEUE_PREFIX = 'emailcampaign';
+
+let _queue: Queue | null = null;
+
+export function getSendQueue(): Queue {
+  if (_queue) return _queue;
+  _queue = new Queue(SEND_QUEUE, {
+    connection: redis,
+    prefix: QUEUE_PREFIX,
+    defaultJobOptions: {
+      attempts: 4,
+      backoff: { type: 'exponential', delay: 5000 },
+      removeOnComplete: 1000,
+      removeOnFail: 5000,
+    },
+  });
+  return _queue;
+}
+
+export const sendQueue = new Proxy({} as Queue, {
+  get(_t, prop) {
+    const q = getSendQueue();
+    const v = (q as any)[prop];
+    return typeof v === 'function' ? v.bind(q) : v;
+  },
+});
+EOF
+sed -i 's/\r$//' lib/queue.ts
+echo "   ✅ queue.ts verified"
+
+# ==========================================
+# 3. Verify
+# ==========================================
+echo ""
+echo "🔎 Verification:"
+grep -q "SEND_QUEUE = 'email-send'" lib/queue.ts && echo "   ✅ SEND_QUEUE = email-send"
+grep -q "QUEUE_PREFIX = 'emailcampaign'" lib/queue.ts && echo "   ✅ QUEUE_PREFIX = emailcampaign"
+grep -q "createWorkerConnection" workers/sender.worker.ts && echo "   ✅ Dedicated worker connection"
+grep -q "drainDelay: 5" workers/sender.worker.ts && echo "   ✅ Fast polling enabled"
+
+# ==========================================
+# 4. Git push
+# ==========================================
+echo ""
+echo "🌿 Git push..."
+git config --local user.email "63999328+dipenzala@users.noreply.github.com"
+git config --local user.name "Dipen Zala"
+
+git add -A
+git diff --cached --quiet || git commit -m "Fix: worker dedicated Redis connection + fast polling"
+
+git push -u origin main 2>&1 | tail -5
+
+echo ""
+echo "==============================================="
+echo " ✅ DONE"
+echo "==============================================="
+echo ""
+echo "🎯 Ab karo:"
+echo ""
+echo "1. Worker terminal me Ctrl+C dabao"
+echo ""
+echo "2. Restart karo:"
+echo "   bash install-and-run.sh"
+echo ""
+echo "3. Dekho — ab logs aise aane chahiye:"
+echo "   [worker-redis] ✅ connected"
+echo "   [worker-redis] ✅ ready"
+echo "   🎯 [WORKER] Ready and listening for jobs"
+echo "   🔥 [WORKER] Processing job ..."
+echo ""
+echo "Agar jobs already queue me hain to turant process hongi"
+echo "==============================================="
