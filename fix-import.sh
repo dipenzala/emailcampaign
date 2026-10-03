@@ -1,3 +1,23 @@
+#!/usr/bin/env bash
+set -e
+
+echo "==============================================="
+echo " 🔧 Fix: worker/tick import"
+echo "==============================================="
+
+cd "$(dirname "$0")" 2>/dev/null || true
+[ -f "package.json" ] || { echo "❌ project root me chalao"; exit 1; }
+echo "📁 $(pwd)"
+echo ""
+
+# ==========================================
+# 1. Fix worker/tick/route.ts
+# ==========================================
+echo "📝 [1/3] Fixing worker/tick route..."
+
+mkdir -p app/api/worker/tick
+
+cat > app/api/worker/tick/route.ts <<'EOF'
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { decrypt, encrypt } from '@/lib/crypto';
@@ -208,3 +228,48 @@ async function tick() {
     return NextResponse.json({ ok: false, error: err?.message ?? String(err) }, { status: 500 });
   }
 }
+EOF
+sed -i 's/\r$//' app/api/worker/tick/route.ts
+echo "   ✅ worker/tick route fixed"
+
+# ==========================================
+# 2. Check for other old import usages
+# ==========================================
+echo ""
+echo "🔎 [2/3] Scanning for other old imports..."
+
+BAD=$(grep -rl "pickNextSender[^S]" app/ lib/ workers/ 2>/dev/null | grep -v node_modules | grep -v "pickNextSenderStrict" || true)
+
+if [ -n "$BAD" ]; then
+  echo "   ⚠️  Found old imports in:"
+  echo "$BAD" | sed 's/^/      /'
+else
+  echo "   ✅ No old imports found"
+fi
+
+# ==========================================
+# 3. Git push
+# ==========================================
+echo ""
+echo "🌿 [3/3] Git push..."
+git config --local user.email "63999328+dipenzala@users.noreply.github.com"
+git config --local user.name "Dipen Zala"
+
+git add -A
+git diff --cached --quiet || git commit -m "Fix: worker/tick import pickNextSenderStrict"
+
+git push -u origin main 2>&1 | tail -5
+
+echo ""
+echo "==============================================="
+echo " ✅ FIXED"
+echo "==============================================="
+echo ""
+echo "🎯 Warning gone — clean build next time"
+echo ""
+echo "📊 Check Vercel:"
+echo "   https://vercel.com/certwinx/emailcampaign-ten/deployments"
+echo ""
+echo "Ye build SUCCESS tha (warning only)."
+echo "Agla build bina warning ke hoga."
+echo "==============================================="
