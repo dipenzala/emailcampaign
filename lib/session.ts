@@ -1,35 +1,23 @@
 import crypto from 'crypto';
-
 const SECRET = process.env.SESSION_SECRET || 'dev-secret-change-me';
 
-/**
- * Session payload — flexible so that different routes can use
- * different user identity fields (email, username, userId, role, etc.)
- * without breaking TypeScript builds.
- */
 export type SessionPayload = {
-  // Identity
   userId?: string;
   id?: string;
   email?: string;
   username?: string;
   name?: string;
   displayName?: string;
-
-  // Authorization
   role?: string;
   isActive?: boolean;
-  isOwner?: boolean;
-
-  // Meta
+  deviceId?: string;
   ts: number;
   exp?: number;
-  [key: string]: any;   // ← Allow any extra field for forward-compat
+  [key: string]: any;
 };
 
-// ---------- Sign / verify ----------
-export function signSession(payload: SessionPayload): string {
-  const data = Buffer.from(JSON.stringify(payload)).toString('base64url');
+export function signSession(p: SessionPayload): string {
+  const data = Buffer.from(JSON.stringify(p)).toString('base64url');
   const sig = crypto.createHmac('sha256', SECRET).update(data).digest('base64url');
   return `${data}.${sig}`;
 }
@@ -40,14 +28,9 @@ export function verifySession(token?: string): SessionPayload | null {
   if (!data || !sig) return null;
   const expected = crypto.createHmac('sha256', SECRET).update(data).digest('base64url');
   if (sig !== expected) return null;
-  try {
-    return JSON.parse(Buffer.from(data, 'base64url').toString());
-  } catch {
-    return null;
-  }
+  try { return JSON.parse(Buffer.from(data, 'base64url').toString()); } catch { return null; }
 }
 
-// ---------- Tokens ----------
 export function hashToken(input: string): string {
   return crypto.createHash('sha256').update(input).digest('hex');
 }
@@ -56,20 +39,17 @@ export function generateToken(bytes = 32): string {
   return crypto.randomBytes(bytes).toString('hex');
 }
 
-// ---------- Passwords ----------
 export function hashPassword(password: string, salt?: string): string {
-  const useSalt = salt ?? crypto.randomBytes(16).toString('hex');
-  const hash = crypto.pbkdf2Sync(password, useSalt, 100_000, 64, 'sha512').toString('hex');
-  return `${useSalt}:${hash}`;
+  const s = salt ?? crypto.randomBytes(16).toString('hex');
+  const h = crypto.pbkdf2Sync(password, s, 100_000, 64, 'sha512').toString('hex');
+  return `${s}:${h}`;
 }
 
 export function verifyPassword(password: string, stored: string): boolean {
   try {
-    const [salt, hash] = stored.split(':');
-    if (!salt || !hash) return false;
-    const check = crypto.pbkdf2Sync(password, salt, 100_000, 64, 'sha512').toString('hex');
-    return crypto.timingSafeEqual(Buffer.from(check), Buffer.from(hash));
-  } catch {
-    return false;
-  }
+    const [s, h] = stored.split(':');
+    if (!s || !h) return false;
+    const c = crypto.pbkdf2Sync(password, s, 100_000, 64, 'sha512').toString('hex');
+    return crypto.timingSafeEqual(Buffer.from(c), Buffer.from(h));
+  } catch { return false; }
 }
