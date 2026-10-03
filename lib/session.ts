@@ -10,7 +10,6 @@ export type SessionPayload = {
   ts: number;
 };
 
-// ---------- Session cookies ----------
 export function signSession(payload: SessionPayload): string {
   const data = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const sig = crypto.createHmac('sha256', SECRET).update(data).digest('base64url');
@@ -30,7 +29,6 @@ export function verifySession(token?: string): SessionPayload | null {
   }
 }
 
-// ---------- Token hashing ----------
 export function hashToken(input: string): string {
   return crypto.createHash('sha256').update(input).digest('hex');
 }
@@ -39,7 +37,6 @@ export function generateToken(bytes = 32): string {
   return crypto.randomBytes(bytes).toString('hex');
 }
 
-// ---------- Password helpers ----------
 export function hashPassword(password: string, salt?: string): string {
   const useSalt = salt ?? crypto.randomBytes(16).toString('hex');
   const hash = crypto.pbkdf2Sync(password, useSalt, 100_000, 64, 'sha512').toString('hex');
