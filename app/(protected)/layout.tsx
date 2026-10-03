@@ -4,7 +4,7 @@ import HelpContact from '@/components/help-contact';
 
 export const dynamic = 'force-dynamic';
 
-export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
+export default async function ProtectedLayout({ children }: { children: React.ReactNode }) {
   const session = await requireAuth();
 
   return (

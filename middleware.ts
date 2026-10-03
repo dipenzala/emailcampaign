@@ -19,24 +19,14 @@ async function verifySessionEdge(token: string, secret: string): Promise<boolean
 
     const enc = new TextEncoder();
     const key = await crypto.subtle.importKey(
-      'raw',
-      enc.encode(secret),
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['verify'],
+      'raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify'],
     );
 
-    const sigBytes = b64urlToBytes(sig);
-    const dataBytes = enc.encode(data);
-    const valid = await crypto.subtle.verify('HMAC', key, sigBytes, dataBytes);
+    const valid = await crypto.subtle.verify('HMAC', key, b64urlToBytes(sig), enc.encode(data));
     if (!valid) return false;
 
-    const payloadJson = new TextDecoder().decode(b64urlToBytes(data));
-    const payload = JSON.parse(payloadJson);
-    if (!payload.ts || Date.now() - payload.ts > 30 * 24 * 60 * 60 * 1000) {
-      return false;
-    }
-
+    const payload = JSON.parse(new TextDecoder().decode(b64urlToBytes(data)));
+    if (!payload.ts || Date.now() - payload.ts > 30 * 24 * 60 * 60 * 1000) return false;
     return true;
   } catch {
     return false;
@@ -46,7 +36,6 @@ async function verifySessionEdge(token: string, secret: string): Promise<boolean
 export async function middleware(req: NextRequest) {
   const token = req.cookies.get('ec_session')?.value;
   const secret = process.env.SESSION_SECRET || '';
-
   const ok = await verifySessionEdge(token || '', secret);
 
   if (!ok) {

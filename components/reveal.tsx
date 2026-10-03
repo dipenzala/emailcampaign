@@ -1,16 +1,8 @@
 'use client';
 import { useEffect, useRef, ReactNode } from 'react';
 
-/**
- * Scroll-triggered reveal wrapper.
- * IntersectionObserver + smooth CSS transitions = Apple-style reveal.
- */
 export function Reveal({
-  children,
-  type = 'up',
-  delay = 0,
-  className = '',
-  as: Tag = 'div',
+  children, type = 'up', delay = 0, className = '', as: Tag = 'div',
 }: {
   children: ReactNode;
   type?: 'up' | 'fade' | 'left' | 'right' | 'scale' | 'blur';
@@ -19,11 +11,9 @@ export function Reveal({
   as?: any;
 }) {
   const ref = useRef<HTMLElement>(null);
-
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-
     const io = new IntersectionObserver(
       (entries) => {
         entries.forEach((e) => {
@@ -33,20 +23,13 @@ export function Reveal({
           }
         });
       },
-      { threshold: 0.1, rootMargin: '0px 0px -80px 0px' }
+      { threshold: 0.1, rootMargin: '0px 0px -60px 0px' }
     );
-
     io.observe(el);
     return () => io.disconnect();
   }, []);
-
   return (
-    <Tag
-      ref={ref}
-      data-reveal={type}
-      data-reveal-delay={delay || undefined}
-      className={className}
-    >
+    <Tag ref={ref} data-reveal={type} data-reveal-delay={delay || undefined} className={className}>
       {children}
     </Tag>
   );
