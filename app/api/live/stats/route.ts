@@ -41,7 +41,6 @@ export async function GET() {
 
     const campaign = await prisma.campaign.findFirst({ orderBy: { createdAt: 'desc' } });
 
-    // Recent activity
     const recent = await prisma.campaignRecipient.findMany({
       take: 15,
       orderBy: { sentAt: 'desc' },
