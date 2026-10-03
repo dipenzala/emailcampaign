@@ -59,8 +59,7 @@ export default function CampaignLive() {
             <tbody>
               {recipients.map(r => (
                 <tr key={r.id} className="border-t border-slate-800">
-                  <td className="p-2">{r.email}</td>
-                  <td>{r.name}</td>
+                  <td className="p-2">{r.email}</td><td>{r.name}</td>
                   <td className={r.status === 'DELIVERED' ? 'text-green-400' : r.status === 'SENT' ? 'text-blue-400' : r.status === 'FAILED' || r.status === 'BOUNCED' ? 'text-red-400' : r.status === 'SUPPRESSED' ? 'text-slate-500' : 'text-yellow-400'}>{r.status}</td>
                   <td className="text-slate-500 truncate max-w-xs">{r.error ?? ''}</td>
                 </tr>

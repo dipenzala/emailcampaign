@@ -1,29 +1,34 @@
-import { requireAuth } from '@/lib/auth-guard';
-import Nav from '@/components/nav';
-import HelpContact from '@/components/help-contact';
-
+import Link from 'next/link';
+import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
+import { verifySession } from '@/lib/session';
+import LogoutButton from './logout-button';
 export const dynamic = 'force-dynamic';
-
-export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const session = await requireAuth();
-
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const token = cookies().get('ec_session')?.value;
+  const session = verifySession(token);
+  if (!session) redirect('/login');
   return (
     <div className="min-h-screen">
-      <Nav username={session.username} role={session.role} />
-      <main className="max-w-7xl mx-auto px-4 md:px-6 py-6 md:py-8">{children}</main>
-      <footer className="max-w-7xl mx-auto px-4 md:px-6 py-8 mt-8 border-t border-black/[0.06]">
-        <div className="flex flex-col md:flex-row items-center justify-between gap-4 text-xs">
-          <div className="text-[#86868b]">
-            © {new Date().getFullYear()} EmailCampaign · <b className="text-[#424245]">Created by DIPEN ZALA</b>
-          </div>
-          <div className="flex items-center gap-5">
-            <span className="text-[#86868b]">Help:</span>
-            <a href="tel:+918128931029" className="text-[#0071e3] hover:underline font-medium">📞 8128931029</a>
-            <a href="https://wa.me/918128931029" target="_blank" rel="noopener" className="text-[#25D366] hover:underline font-medium">💬 WhatsApp</a>
+      <nav className="glass-nav sticky top-0 z-40">
+        <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between">
+          <Link href="/dashboard" className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500 to-pink-500" />
+            <span className="font-semibold tracking-tight text-sm">EmailCampaign</span>
+          </Link>
+          <div className="flex items-center gap-1">
+            <Link href="/dashboard" className="text-sm text-slate-300 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/5 transition">Campaign</Link>
+            <Link href="/senders" className="text-sm text-slate-300 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/5 transition">Senders</Link>
+            <Link href="/senders/rotation" className="text-sm text-slate-300 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/5 transition">Rotation</Link>
+            <Link href="/anti-spam" className="text-sm text-slate-300 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/5 transition">🛡️ Anti-Spam</Link>
+            <Link href="/history" className="text-sm text-slate-300 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/5 transition">History</Link>
+            <div className="w-px h-5 bg-white/10 mx-2" />
+            <span className="text-xs text-slate-500 hidden md:inline">{session.email}</span>
+            <LogoutButton />
           </div>
         </div>
-      </footer>
-      <HelpContact />
+      </nav>
+      <main className="max-w-6xl mx-auto px-6 py-8">{children}</main>
     </div>
   );
 }

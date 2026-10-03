@@ -7,7 +7,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const code = url.searchParams.get('code');
   const error = url.searchParams.get('error');
-  const appUrl = process.env.APP_URL || url.origin;
+  const appUrl = process.env.APP_URL || 'https://emailcampaign-ten.vercel.app';
   if (error) return NextResponse.json({ error: 'Google error', detail: error }, { status: 400 });
   if (!code) return NextResponse.json({ error: 'Missing code' }, { status: 400 });
   const env = { GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI, TOKEN_ENCRYPTION_KEY: process.env.TOKEN_ENCRYPTION_KEY, DATABASE_URL: process.env.DATABASE_URL };

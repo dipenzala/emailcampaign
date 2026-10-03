@@ -4,7 +4,7 @@ function getKey(): Buffer {
   if (_key) return _key;
   const raw = (process.env.TOKEN_ENCRYPTION_KEY || '').trim();
   if (!/^[0-9a-fA-F]{64}$/.test(raw)) {
-    throw new Error('TOKEN_ENCRYPTION_KEY must be 64 hex chars (got ' + raw.length + '). Generate: openssl rand -hex 32');
+    throw new Error('TOKEN_ENCRYPTION_KEY must be 64 hex chars (got ' + raw.length + ')');
   }
   _key = Buffer.from(raw, 'hex');
   return _key;

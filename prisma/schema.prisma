@@ -1,26 +1,16 @@
 generator client {
   provider = "prisma-client-js"
 }
-
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
-
-
-
 model User {
-  id           String   @id @default(cuid())
-  username     String   @unique
-  passwordHash String
-  displayName  String?
-  role         String   @default("member")
-  isActive     Boolean  @default(true)
-  lastLoginAt  DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
 }
-
 model SenderAccount {
   id              String    @id @default(cuid())
   email           String    @unique
@@ -48,7 +38,6 @@ model SenderAccount {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 }
-
 model Contact {
   id            String    @id @default(cuid())
   email         String    @unique
@@ -63,14 +52,12 @@ model Contact {
   createdAt     DateTime  @default(now())
   recipients    CampaignRecipient[]
 }
-
 model SuppressionList {
   id        String   @id @default(cuid())
   email     String   @unique
   reason    String
   createdAt DateTime @default(now())
 }
-
 model Campaign {
   id              String   @id @default(cuid())
   name            String
@@ -91,7 +78,6 @@ model Campaign {
   completedAt     DateTime?
   recipients      CampaignRecipient[]
 }
-
 model CampaignRecipient {
   id                String    @id @default(cuid())
   campaignId        String
@@ -113,7 +99,6 @@ model CampaignRecipient {
   @@unique([campaignId, contactId])
   @@index([campaignId, status])
 }
-
 model MessageLog {
   id          String   @id @default(cuid())
   campaignId  String
@@ -122,36 +107,9 @@ model MessageLog {
   message     String
   createdAt   DateTime @default(now())
 }
-
 model AuditLog {
   id        String   @id @default(cuid())
   action    String
   meta      Json?
   createdAt DateTime @default(now())
-}
-
-model EmailTemplate {
-  id        String   @id @default(cuid())
-  name      String
-  subject   String   @default("")
-  html      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model Session {
-  id           String   @id @default(cuid())
-  userId       String
-  deviceId     String
-  deviceName   String   @default("Unknown Device")
-  ip           String?
-  userAgent    String?
-  tokenHash    String   @unique
-  createdAt    DateTime @default(now())
-  lastSeenAt   DateTime @default(now())
-  expiresAt    DateTime
-  revokedAt    DateTime?
-
-  @@index([userId])
-  @@index([deviceId])
 }
