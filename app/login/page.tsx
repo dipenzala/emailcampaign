@@ -59,26 +59,27 @@ function LoginInner() {
 
   return (
     <div className="relative min-h-screen overflow-hidden flex items-center justify-center px-6 py-16">
-      {/* Premium background */}
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute top-[10%] left-[15%] w-96 h-96 rounded-full bg-[#0071e3]/15 blur-[120px] float-slow" />
-        <div className="absolute bottom-[10%] right-[15%] w-[500px] h-[500px] rounded-full bg-[#5e5ce6]/10 blur-[140px] float" style={{ animationDelay: '2s' }} />
-      </div>
+
+      {/* Floating decorative orbs */}
+      <div className="absolute top-[8%] left-[10%] w-96 h-96 rounded-full bg-[#0071e3]/10 blur-[100px] float-slow pointer-events-none" />
+      <div className="absolute bottom-[8%] right-[10%] w-[480px] h-[480px] rounded-full bg-[#5e5ce6]/8 blur-[120px] float pointer-events-none" style={{ animationDelay: '2s' }} />
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-[#30d158]/5 blur-[140px] pointer-events-none" />
 
       {/* Top-right credit */}
       <div className="absolute top-6 right-6 z-20 fade-up">
-        <div className="px-4 py-2 rounded-full bg-white/70 backdrop-blur-xl border border-black/[0.06] shadow-sm">
+        <div className="px-4 py-2 rounded-full bg-white/80 backdrop-blur-xl border border-black/[0.06] shadow-sm">
           <span className="text-xs text-[#86868b]">Created by</span>{' '}
           <span className="text-xs font-semibold text-[#0071e3]">DIPEN ZALA</span>
         </div>
       </div>
 
-      <div className="relative z-10 w-full max-w-[400px]">
+      <div className="relative z-10 w-full max-w-[420px]">
+
         {/* Logo */}
         <div className="text-center mb-10 fade-up">
           <div className="inline-block relative">
             <div className="absolute inset-0 bg-[#0071e3] rounded-2xl blur-2xl opacity-30" />
-            <div className="relative w-16 h-16 rounded-2xl bg-[#0071e3] flex items-center justify-center shadow-xl shadow-[#0071e3]/30 float-slow">
+            <div className="relative w-16 h-16 rounded-2xl bg-gradient-to-br from-[#0071e3] to-[#0077ed] flex items-center justify-center shadow-xl shadow-blue-500/30 float-slow">
               <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
               </svg>
@@ -87,11 +88,11 @@ function LoginInner() {
           <h1 className="mt-6 text-3xl font-semibold tracking-tight text-[#1d1d1f]">
             Email<span className="gradient-text">Campaign</span>
           </h1>
-          <p className="mt-2 text-sm text-[#86868b]">Premium email platform</p>
+          <p className="mt-2 text-sm text-[#6e6e73]">Premium email platform</p>
         </div>
 
         {/* Card */}
-        <div className="card !p-8 md:!p-10 !rounded-3xl fade-up fade-up-delay-1 shadow-2xl shadow-black/[0.08]">
+        <div className="card !p-8 md:!p-10 !rounded-3xl fade-up fade-up-d1 shadow-2xl shadow-blue-500/5">
 
           {checking ? (
             <div className="text-center text-[#86868b] py-12 flex flex-col items-center gap-3">
@@ -115,7 +116,7 @@ function LoginInner() {
 
               <form onSubmit={submit} className="space-y-4">
                 <div>
-                  <label className="text-xs font-semibold text-[#424245] mb-2 block tracking-wide">Username</label>
+                  <label className="text-xs font-semibold text-[#424245] mb-2 block tracking-wide uppercase">Username</label>
                   <input
                     type="text"
                     required
@@ -129,7 +130,7 @@ function LoginInner() {
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-[#424245] mb-2 block tracking-wide">Password</label>
+                  <label className="text-xs font-semibold text-[#424245] mb-2 block tracking-wide uppercase">Password</label>
                   <div className="relative">
                     <input
                       type={showPwd ? 'text' : 'password'}
@@ -161,7 +162,7 @@ function LoginInner() {
                 </div>
 
                 {err && (
-                  <div className="text-sm text-[#ff3b30] bg-[#ff3b30]/[0.06] border border-[#ff3b30]/20 rounded-xl px-4 py-3 flex items-start gap-2 fade-up">
+                  <div className="text-sm text-[#ff453a] bg-[#ff453a]/[0.06] border border-[#ff453a]/20 rounded-xl px-4 py-3 flex items-start gap-2 fade-up">
                     <svg className="w-4 h-4 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                     </svg>
@@ -172,11 +173,11 @@ function LoginInner() {
                 <button
                   type="submit"
                   disabled={busy}
-                  className="btn btn-primary w-full !py-3 !text-base !mt-2"
+                  className="btn btn-primary w-full !py-3.5 !text-base !mt-2"
                 >
                   {busy ? (
                     <span className="flex items-center gap-2">
-                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <span className="spinner spinner-white" />
                       Signing in…
                     </span>
                   ) : (
@@ -194,7 +195,7 @@ function LoginInner() {
         </div>
 
         {/* Trust badges */}
-        <div className="mt-6 flex items-center justify-center gap-5 text-xs text-[#86868b] fade-up fade-up-delay-2">
+        <div className="mt-6 flex items-center justify-center gap-5 text-xs text-[#86868b] fade-up fade-up-d2">
           <span className="flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-[#30d158]" />
             Secure
@@ -205,7 +206,7 @@ function LoginInner() {
           <span>OAuth 2.0</span>
         </div>
 
-        <div className="mt-8 text-center fade-up fade-up-delay-3">
+        <div className="mt-8 text-center fade-up fade-up-d3">
           <p className="text-xs text-[#86868b]">
             © {new Date().getFullYear()} EmailCampaign · <b className="text-[#424245]">Created by DIPEN ZALA</b>
           </p>
@@ -251,17 +252,17 @@ function SetupForm({ onDone }: { onDone: () => void }) {
       </div>
 
       <div>
-        <label className="text-xs font-semibold text-[#424245] mb-2 block tracking-wide">Admin Username</label>
+        <label className="text-xs font-semibold text-[#424245] mb-2 block uppercase tracking-wide">Admin Username</label>
         <input type="text" required value={username} onChange={e => setUsername(e.target.value)} placeholder="admin" className="input" autoFocus />
       </div>
 
       <div>
-        <label className="text-xs font-semibold text-[#424245] mb-2 block tracking-wide">Password (min 8 chars)</label>
+        <label className="text-xs font-semibold text-[#424245] mb-2 block uppercase tracking-wide">Password (min 8 chars)</label>
         <input type="password" required minLength={8} value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" className="input" />
       </div>
 
       <div>
-        <label className="text-xs font-semibold text-[#424245] mb-2 block tracking-wide">Setup Key</label>
+        <label className="text-xs font-semibold text-[#424245] mb-2 block uppercase tracking-wide">Setup Key</label>
         <input type="text" required value={setupKey} onChange={e => setSetupKey(e.target.value)} placeholder="from Vercel env" className="input" />
         <p className="text-xs text-[#86868b] mt-2">
           Vercel → Environment Variables → <code className="bg-black/[0.05] px-1.5 py-0.5 rounded text-[#424245] text-[11px]">ADMIN_SETUP_KEY</code>
@@ -269,10 +270,10 @@ function SetupForm({ onDone }: { onDone: () => void }) {
       </div>
 
       {err && (
-        <div className="text-sm text-[#ff3b30] bg-[#ff3b30]/[0.06] border border-[#ff3b30]/20 rounded-xl px-4 py-3">{err}</div>
+        <div className="text-sm text-[#ff453a] bg-[#ff453a]/[0.06] border border-[#ff453a]/20 rounded-xl px-4 py-3">{err}</div>
       )}
 
-      <button type="submit" disabled={busy} className="btn btn-primary w-full !py-3 !text-base">
+      <button type="submit" disabled={busy} className="btn btn-primary w-full !py-3.5 !text-base">
         {busy ? 'Creating…' : 'Create Admin →'}
       </button>
     </form>
