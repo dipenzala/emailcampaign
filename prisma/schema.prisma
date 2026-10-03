@@ -15,31 +15,46 @@ model User {
 }
 
 model SenderAccount {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  displayName   String?
-  accessToken   String?
-  refreshToken  String?
-  tokenExpiry   DateTime?
-  scope         String?
-  status        String    @default("DISCONNECTED")
-  sentToday     Int       @default(0)
-  errors        Int       @default(0)
-  lastSuccessAt DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id              String    @id @default(cuid())
+  email           String    @unique
+  displayName     String?
+  accessToken     String?
+  refreshToken    String?
+  tokenExpiry     DateTime?
+  scope           String?
+  status          String    @default("DISCONNECTED")
+  sentToday       Int       @default(0)
+  dailyLimit      Int       @default(10)
+  batchCount      Int       @default(0)
+  rotationOrder   Int       @default(0)
+  isActive        Boolean   @default(true)
+  errors          Int       @default(0)
+  lastSuccessAt   DateTime?
+  lastResetAt     DateTime  @default(now())
+  warmupEnabled   Boolean   @default(true)
+  warmupStartedAt DateTime  @default(now())
+  warmupDay       Int       @default(1)
+  hardBounces     Int       @default(0)
+  softBounces     Int       @default(0)
+  complaints      Int       @default(0)
+  reputationScore Int       @default(100)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 }
 
 model Contact {
-  id         String              @id @default(cuid())
-  email      String              @unique
-  name       String?
-  company    String?
-  phone      String?
-  city       String?
-  custom     Json?
-  createdAt  DateTime            @default(now())
-  recipients CampaignRecipient[]
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  company       String?
+  phone         String?
+  city          String?
+  custom        Json?
+  isRoleAccount Boolean   @default(false)
+  isDisposable  Boolean   @default(false)
+  hygieneScore  Int       @default(100)
+  createdAt     DateTime  @default(now())
+  recipients    CampaignRecipient[]
 }
 
 model SuppressionList {
@@ -50,18 +65,21 @@ model SuppressionList {
 }
 
 model Campaign {
-  id              String              @id @default(cuid())
+  id              String   @id @default(cuid())
   name            String
   subject         String
   html            String
-  status          String              @default("DRAFT")
-  totalCount      Int                 @default(0)
-  sentCount       Int                 @default(0)
-  deliveredCount  Int                 @default(0)
-  failedCount     Int                 @default(0)
-  bouncedCount    Int                 @default(0)
-  suppressedCount Int                 @default(0)
-  createdAt       DateTime            @default(now())
+  status          String   @default("DRAFT")
+  totalCount      Int      @default(0)
+  sentCount       Int      @default(0)
+  deliveredCount  Int      @default(0)
+  failedCount     Int      @default(0)
+  bouncedCount    Int      @default(0)
+  suppressedCount Int      @default(0)
+  batchLimit      Int      @default(10)
+  spamScore       Int?
+  spamIssues      Json?
+  createdAt       DateTime @default(now())
   startedAt       DateTime?
   completedAt     DateTime?
   recipients      CampaignRecipient[]
@@ -81,9 +99,10 @@ model CampaignRecipient {
   sentAt            DateTime?
   deliveredAt       DateTime?
   failedAt          DateTime?
+  bouncedAt         DateTime?
+  bounceType        String?
   campaign          Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   contact           Contact   @relation(fields: [contactId], references: [id])
-
   @@unique([campaignId, contactId])
   @@index([campaignId, status])
 }

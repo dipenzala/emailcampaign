@@ -29,10 +29,10 @@ ${Buffer.from(opts.html).toString('base64')}
 }
 export function htmlToText(html: string) {
   return html.replace(/<style[\s\S]*?<\/style>/gi,'')
-             .replace(/<script[\s\S]*?<\/script>/gi,'')
-             .replace(/<br\s*\/?>/gi,'\n')
-             .replace(/<\/p>/gi,'\n\n')
-             .replace(/<[^>]+>/g,'')
-             .replace(/\n{3,}/g,'\n\n')
-             .trim();
+    .replace(/<script[\s\S]*?<\/script>/gi,'')
+    .replace(/<br\s*\/?>/gi,'\n')
+    .replace(/<\/p>/gi,'\n\n')
+    .replace(/<[^>]+>/g,'')
+    .replace(/\n{3,}/g,'\n\n')
+    .trim();
 }

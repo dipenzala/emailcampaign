@@ -1,10 +1,16 @@
 import { google } from 'googleapis';
 export function oauthClient() {
-  return new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    process.env.GOOGLE_REDIRECT_URI,
-  );
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const redirectUri = process.env.GOOGLE_REDIRECT_URI;
+  if (!clientId || !clientSecret || !redirectUri) {
+    throw new Error('Missing Google OAuth env vars: ' + [
+      clientId ? null : 'GOOGLE_CLIENT_ID',
+      clientSecret ? null : 'GOOGLE_CLIENT_SECRET',
+      redirectUri ? null : 'GOOGLE_REDIRECT_URI',
+    ].filter(Boolean).join(', '));
+  }
+  return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 export function gmailFor(accessToken: string, refreshToken: string) {
   const c = oauthClient();

@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-
 export function middleware(req: NextRequest) {
   const token = req.cookies.get('ec_session')?.value;
   if (!token) {
@@ -11,7 +10,4 @@ export function middleware(req: NextRequest) {
   }
   return NextResponse.next();
 }
-
-export const config = {
-  matcher: ['/dashboard/:path*', '/senders/:path*', '/history/:path*', '/campaigns/:path*'],
-};
+export const config = { matcher: ['/dashboard/:path*','/senders/:path*','/history/:path*','/campaigns/:path*','/anti-spam/:path*'] };
