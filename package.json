@@ -38,5 +38,8 @@
     "concurrently": "^9.1.0",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.15"
+  },
+  "optionalDependencies": {
+    "@valkey/valkey-glide": "^1.0.0"
   }
 }
