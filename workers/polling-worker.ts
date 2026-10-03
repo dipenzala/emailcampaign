@@ -5,12 +5,11 @@ import { oauthClient } from '../lib/gmail';
 import { google } from 'googleapis';
 import { buildMime, htmlToText } from '../lib/mime';
 import { renderTemplate } from '../lib/personalization';
-import { pickNextSender, markSenderUsed } from '../lib/sender-rotation';
-import { effectiveLimit } from '../lib/warmup';
+import { pickNextSenderStrict, markSenderUsed } from '../lib/sender-rotation';
 import { handleBounce } from '../lib/bounce-handler';
 
-const POLL_INTERVAL = 2000; // 2 seconds
-const BATCH_SIZE = 5;       // Process 5 at a time
+const POLL_INTERVAL = 3000;
+const BATCH_SIZE = 5;
 
 let running = true;
 let processing = false;
@@ -24,11 +23,7 @@ async function sendViaGmail(sender: any, to: string, subject: string, html: stri
 
   const raw = buildMime({
     from: `${sender.displayName ?? sender.email} <${sender.email}>`,
-    to,
-    subject,
-    html,
-    text,
-    unsubscribeUrl: unsubUrl,
+    to, subject, html, text, unsubscribeUrl: unsubUrl,
   });
 
   const res = await gmail.users.messages.send({
@@ -44,7 +39,7 @@ async function processOne(recipient: any) {
 
   const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
   if (!campaign) return false;
-  if (campaign.status === 'PAUSED' || campaign.status === 'STOPPED') return false;
+  if (campaign.status !== 'RUNNING') return false;
 
   // Suppression check
   const sup = await prisma.suppressionList.findUnique({ where: { email: recipient.contact.email } });
@@ -57,34 +52,23 @@ async function processOne(recipient: any) {
       where: { id: campaignId },
       data: { suppressedCount: { increment: 1 } },
     });
+    console.log(`⏭️  SKIP ${recipient.contact.email} (suppressed)`);
     return true;
   }
 
-  // Mark as processing
+  // Mark processing
   await prisma.campaignRecipient.update({
     where: { id: recipientId },
     data: { status: 'PROCESSING', attemptCount: recipient.attemptCount + 1 },
   });
 
-  // Pick sender
-  const sender = await pickNextSender({ batchLimit: campaign.batchLimit ?? 10 });
-  if (!sender) {
-    console.log('⚠️  No sender available');
-    await prisma.campaignRecipient.update({
-      where: { id: recipientId },
-      data: { status: 'QUEUED' },
-    });
-    return false;
-  }
-
-  // Warm-up check
-  const cap = effectiveLimit({
-    warmupEnabled: sender.warmupEnabled,
-    warmupDay: sender.warmupDay,
-    dailyLimit: sender.dailyLimit,
+  // ============ STRICT ROTATION ============
+  const sender = await pickNextSenderStrict({
+    batchLimit: campaign.batchLimit ?? 10,
   });
-  if (sender.sentToday >= cap) {
-    console.log(`⏸️  Warm-up cap reached: ${sender.email} (${sender.sentToday}/${cap})`);
+
+  if (!sender) {
+    console.log('⏸️  No sender available — all at cap');
     await prisma.campaignRecipient.update({
       where: { id: recipientId },
       data: { status: 'QUEUED' },
@@ -92,7 +76,7 @@ async function processOne(recipient: any) {
     return false;
   }
 
-  console.log(`📤 [${sender.email}] → ${recipient.contact.email}`);
+  console.log(`📤 [Sender: ${sender.email}] batch=${sender.batchCount}/${campaign.batchLimit ?? 10} sent=${sender.sentToday}/${sender.dailyLimit}`);
 
   const unsubUrl = `${process.env.APP_URL}/api/unsubscribe/${Buffer.from(recipient.contact.email).toString('base64url')}`;
   const personalizedHtml = renderTemplate(campaign.html, {
@@ -106,12 +90,7 @@ async function processOne(recipient: any) {
 
   try {
     const { id: providerMessageId, access, refresh } = await sendViaGmail(
-      sender,
-      recipient.contact.email,
-      campaign.subject,
-      personalizedHtml,
-      text,
-      unsubUrl
+      sender, recipient.contact.email, campaign.subject, personalizedHtml, text, unsubUrl
     );
 
     await prisma.campaignRecipient.update({
@@ -140,9 +119,8 @@ async function processOne(recipient: any) {
       });
     }
 
-    console.log(`✅ SENT to ${recipient.contact.email}`);
+    console.log(`✅ SENT [${sender.email}] → ${recipient.contact.email}`);
 
-    // Check campaign complete
     const remaining = await prisma.campaignRecipient.count({
       where: { campaignId, status: { in: ['QUEUED', 'PROCESSING'] } },
     });
@@ -151,7 +129,7 @@ async function processOne(recipient: any) {
         where: { id: campaignId },
         data: { status: 'COMPLETED', completedAt: new Date() },
       });
-      console.log('🎉 Campaign completed!');
+      console.log('🎉 CAMPAIGN COMPLETED');
     }
 
     return true;
@@ -159,49 +137,59 @@ async function processOne(recipient: any) {
     const msg = err?.message ?? 'Send failed';
     const code = err?.code ?? err?.response?.status ?? 'ERROR';
     const isBounce = /550|551|552|553|554|5\.1\.1|user unknown|mailbox|invalid recipient/i.test(msg);
+    const isPerm = /insufficient|permission|invalid_grant|unauthorized/i.test(msg);
 
-    if (isBounce) {
-      await handleBounce({ email: recipient.contact.email, senderAccountId: sender.id, bounceType: 'HARD' });
+    if (isBounce || isPerm) {
+      await prisma.suppressionList.upsert({
+        where: { email: recipient.contact.email },
+        create: { email: recipient.contact.email, reason: isBounce ? 'BOUNCED' : 'MANUAL_BLOCK' },
+        update: {},
+      }).catch(() => {});
       await prisma.campaignRecipient.update({
         where: { id: recipientId },
-        data: { status: 'BOUNCED', errorCode: 'BOUNCED', errorMessage: msg, failedAt: new Date(), bounceType: 'HARD' },
+        data: {
+          status: isBounce ? 'BOUNCED' : 'SUPPRESSED',
+          errorCode: isBounce ? 'BOUNCED' : 'AUTO_SUPPRESSED',
+          errorMessage: msg.slice(0, 200),
+          failedAt: new Date(),
+        },
       });
       await prisma.campaign.update({
         where: { id: campaignId },
-        data: { failedCount: { increment: 1 }, bouncedCount: { increment: 1 } },
+        data: { failedCount: { increment: 1 } },
       });
+      if (isBounce) await handleBounce({ email: recipient.contact.email, senderAccountId: sender.id, bounceType: 'HARD' });
+      console.log(`⛔ ${isBounce ? 'BOUNCED' : 'SUPPRESSED'} ${recipient.contact.email}`);
       return false;
     }
 
-    // Retryable error — put back in queue
+    // Retryable
     if (recipient.attemptCount < 3) {
       await prisma.campaignRecipient.update({
         where: { id: recipientId },
-        data: { status: 'QUEUED', errorMessage: msg },
+        data: { status: 'QUEUED', errorMessage: msg.slice(0, 200) },
       });
     } else {
       await prisma.campaignRecipient.update({
         where: { id: recipientId },
-        data: { status: 'FAILED', errorCode: String(code), errorMessage: msg, failedAt: new Date() },
+        data: { status: 'FAILED', errorCode: String(code), errorMessage: msg.slice(0, 200), failedAt: new Date() },
       });
       await prisma.campaign.update({
         where: { id: campaignId },
         data: { failedCount: { increment: 1 } },
       });
     }
-    console.log(`❌ Failed ${recipient.contact.email}: ${msg}`);
+    console.log(`❌ ${recipient.contact.email}: ${msg.slice(0, 60)}`);
     return false;
   }
 }
 
 async function poll() {
-  if (!running) return;
-  if (processing) return;
+  if (!running || processing) return;
   processing = true;
 
   try {
-    // Get QUEUED recipients from RUNNING campaigns
-    const recipients = await prisma.campaignRecipient.findMany({
+    const recips = await prisma.campaignRecipient.findMany({
       where: {
         status: 'QUEUED',
         campaign: { status: 'RUNNING' },
@@ -211,9 +199,9 @@ async function poll() {
       orderBy: { queuedAt: 'asc' },
     });
 
-    if (recipients.length > 0) {
-      console.log(`\n📬 Found ${recipients.length} queued recipient(s)`);
-      for (const r of recipients) {
+    if (recips.length > 0) {
+      console.log(`\n📬 ${recips.length} queued`);
+      for (const r of recips) {
         if (!running) break;
         await processOne(r);
       }
@@ -225,27 +213,21 @@ async function poll() {
   }
 }
 
-// ==========================================
-// START
-// ==========================================
+// ============ START ============
 console.log('');
 console.log('═══════════════════════════════════════════');
-console.log(' 🚀 Polling Worker (BullMQ bypass)');
+console.log(' 🔄 STRICT ROTATION WORKER');
 console.log('═══════════════════════════════════════════');
-console.log('   DB:          ' + (process.env.DATABASE_URL || '').slice(0, 40) + '...');
-console.log('   Poll every:  ' + (POLL_INTERVAL / 1000) + 's');
-console.log('   Batch size:  ' + BATCH_SIZE);
+console.log('   Poll:       ' + (POLL_INTERVAL / 1000) + 's');
+console.log('   Batch size: ' + BATCH_SIZE);
+console.log('   Mode:       Sender 1 → Sender 2 → Sender 3 → ...');
 console.log('');
 console.log('🎯 Listening for QUEUED recipients...');
 console.log('');
 
-// Initial poll
 poll();
-
-// Schedule
 setInterval(poll, POLL_INTERVAL);
 
-// Graceful shutdown
 process.on('SIGINT', async () => {
   console.log('\n🛑 Shutting down...');
   running = false;
