@@ -103,31 +103,6 @@ function renderTemplate(html, data) {
   });
 }
 
-function injectTracking(html, recipientId) {
-  const appUrl = process.env.APP_URL || '';
-  if (!appUrl || !recipientId) return html;
-  const token = Buffer.from(recipientId).toString('base64url');
-  const pixelUrl = appUrl + '/api/track/open/' + token;
-  const pixelHtml = '<img src="' + pixelUrl + '" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0;outline:none;text-decoration:none;opacity:0" />';
-  let out = html;
-  if (/<\/body>/i.test(out)) {
-    out = out.replace(/<\/body>/i, pixelHtml + '</body>');
-  } else {
-    out = out + pixelHtml;
-  }
-  // Wrap links
-  out = out.replace(/<a\s+([^>]*?)href=["']([^"']+)["']([^>]*?)>/gi, function(match, before, href, after) {
-    if (href.startsWith('mailto:') || href.startsWith('tel:') || href.startsWith('#') ||
-        href.includes('/api/track/') || href.includes('/api/unsubscribe/') || href.includes('javascript:')) {
-      return match;
-    }
-    var wrapped = appUrl + '/api/track/click/' + token + '?url=' + encodeURIComponent(href);
-    return '<a ' + before + 'href="' + wrapped + '"' + after + '>';
-  });
-  return out;
-}
-
-
 const TIERS = [
   { maxDay: 3, limit: 5 },
   { maxDay: 7, limit: 10 },

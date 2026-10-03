@@ -149,6 +149,9 @@ model Campaign {
   completedAt     DateTime?
   recipients      CampaignRecipient[]
   attachments     Attachment[]
+  openedCount     Int      @default(0)
+  clickedCount    Int      @default(0)
+
 }
 
 model CampaignRecipient {
@@ -171,6 +174,14 @@ model CampaignRecipient {
   contact           Contact   @relation(fields: [contactId], references: [id])
   @@unique([campaignId, contactId])
   @@index([campaignId, status])
+  // -------- Tracking --------
+  openedAt     DateTime?
+  openCount    Int       @default(0)
+  clickedAt    DateTime?
+  clickCount   Int       @default(0)
+  userAgent    String?
+  ipAddress    String?
+
 }
 
 model Attachment {
