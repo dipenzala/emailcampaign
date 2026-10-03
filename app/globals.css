@@ -33,3 +33,30 @@ html,body{background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMa
 @keyframes floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
 .floaty{animation:floaty 6s ease-in-out infinite}
 ::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:8px}::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.22)}
+
+/* ============ EXTRA MOBILE ============ */
+@media(max-width:768px){
+  .card{ border-radius:16px; padding:16px; }
+  .card:hover{ transform:none; }
+  .btn{ padding:9px 16px; font-size:13px; border-radius:10px; }
+  .input{ padding:10px 14px; font-size:14px; }
+  .toast{ max-width:calc(100vw - 40px); font-size:12px; }
+  .toast-container{ right:12px; top:70px; }
+  h1{ font-size:1.5rem; }
+}
+
+@media(max-width:480px){
+  .app-content{ padding:12px; }
+  .topbar{ padding:8px 12px 8px 60px; min-height:56px; }
+  .topbar-actions{ gap:6px; }
+  .topbar-action{ width:32px; height:32px; }
+  .toast-container{ right:8px; top:64px; }
+}
+
+/* ============ SCROLL ============ */
+.mobile-scroll{
+  overflow-x:auto;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:none;
+}
+.mobile-scroll::-webkit-scrollbar{ display:none; }
