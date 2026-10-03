@@ -68,7 +68,7 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
     const jobs = recips.map(r => ({
       name: 'send',
       data: { campaignId: params.id, recipientId: r.id },
-      opts: { jobId: `${params.id}:${r.id}` },
+      opts: { jobId: `${params.id}-${r.id}` },
     }));
 
     await q.addBulk(jobs);

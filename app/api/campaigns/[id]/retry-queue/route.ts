@@ -13,7 +13,7 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
     const jobs = recips.map((r) => ({
       name: 'send',
       data: { campaignId: params.id, recipientId: r.id },
-      opts: { jobId: `${params.id}:${r.id}`, attempts: 4, backoff: { type: 'exponential' as const, delay: 5000 } },
+      opts: { jobId: `${params.id}-${r.id}`, attempts: 4, backoff: { type: 'exponential' as const, delay: 5000 } },
     }));
     await q.addBulk(jobs);
     return NextResponse.json({ ok: true, queued: jobs.length });
