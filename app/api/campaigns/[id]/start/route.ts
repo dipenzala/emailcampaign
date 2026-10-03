@@ -6,6 +6,7 @@ import { checkEmail } from '@/lib/spam-checker';
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export async function POST(_: Request, { params }: { params: { id: string } }) {
   const t0 = Date.now();
@@ -43,32 +44,34 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
     });
 
     if (recips.length === 0) {
-      return NextResponse.json({ ok: true, queued: 0 });
+      return NextResponse.json({ ok: true, queued: 0, message: 'No queued recipients' });
     }
 
-    // Ensure Redis is connected BEFORE queueing
     try {
       await connectRedis(8000);
     } catch (e: any) {
-      console.error('[start] Redis connect failed:', e.message);
-      return NextResponse.json(
-        {
-          ok: true,
-          queued: 0,
-          total: recips.length,
-          warning: 'Redis not reachable — campaign marked RUNNING. Retry via /retry-queue once Redis is back.',
-          redis_error: e.message,
-          elapsed: Date.now() - t0,
-        },
-        { status: 200 }
-      );
+      return NextResponse.json({
+        ok: true,
+        queued: 0,
+        total: recips.length,
+        warning: 'Redis not reachable — use retry-queue later',
+        redis_error: e.message,
+      });
     }
 
     const q = getSendQueue();
-    const jobs = recips.map(r => ({
+
+    // NO COLON — use dash separator
+    const jobs = recips.map((r) => ({
       name: 'send',
       data: { campaignId: params.id, recipientId: r.id },
-      opts: { jobId: `${params.id}-${r.id}` },
+      opts: {
+        jobId: params.id + '-' + r.id,
+        attempts: 4,
+        backoff: { type: 'exponential' as const, delay: 5000 },
+        removeOnComplete: 1000,
+        removeOnFail: 5000,
+      },
     }));
 
     await q.addBulk(jobs);
