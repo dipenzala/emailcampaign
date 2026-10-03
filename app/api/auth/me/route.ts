@@ -9,5 +9,12 @@ export async function GET() {
   const token = cookies().get('ec_session')?.value;
   const user = verifySession(token);
   if (!user) return NextResponse.json({ user: null }, { status: 401 });
-  return NextResponse.json({ user: { email: user.email, name: user.name } });
+  return NextResponse.json({
+    user: {
+      email: user.email,
+      username: user.username,
+      name: user.name,
+      role: user.role,
+    },
+  });
 }
