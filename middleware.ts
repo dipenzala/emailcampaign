@@ -1,14 +1,74 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-export function middleware(req: NextRequest) {
+/**
+ * Validates session cookie signature using Web Crypto (edge-compatible).
+ * Rejects:
+ *   - Missing cookie
+ *   - Tampered signature
+ *   - Expired session (30 days)
+ */
+async function verifySessionEdge(token: string, secret: string): Promise<boolean> {
+  try {
+    if (!token || !secret) return false;
+    const parts = token.split('.');
+    if (parts.length !== 2) return false;
+    const [data, sig] = parts;
+
+    // Decode base64url signature
+    const pad = (s: string) => s + '='.repeat((4 - (s.length % 4)) % 4);
+    const b64urlToBytes = (s: string) => {
+      const b64 = pad(s.replace(/-/g, '+').replace(/_/g, '/'));
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return bytes;
+    };
+
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw',
+      enc.encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['verify'],
+    );
+
+    const sigBytes = b64urlToBytes(sig);
+    const dataBytes = enc.encode(data);
+
+    const valid = await crypto.subtle.verify('HMAC', key, sigBytes, dataBytes);
+    if (!valid) return false;
+
+    // Decode payload + check expiry
+    const payloadJson = new TextDecoder().decode(b64urlToBytes(data));
+    const payload = JSON.parse(payloadJson);
+    if (!payload.ts || Date.now() - payload.ts > 30 * 24 * 60 * 60 * 1000) {
+      return false;
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function middleware(req: NextRequest) {
   const token = req.cookies.get('ec_session')?.value;
-  if (!token) {
+  const secret = process.env.SESSION_SECRET || '';
+
+  const ok = await verifySessionEdge(token || '', secret);
+
+  if (!ok) {
     const url = req.nextUrl.clone();
     url.pathname = '/login';
     url.searchParams.set('next', req.nextUrl.pathname);
-    return NextResponse.redirect(url);
+    const res = NextResponse.redirect(url);
+    // Clear any bad cookie
+    res.cookies.set('ec_session', '', { path: '/', maxAge: 0 });
+    return res;
   }
+
   return NextResponse.next();
 }
 
@@ -20,5 +80,12 @@ export const config = {
     '/campaigns/:path*',
     '/anti-spam/:path*',
     '/team/:path*',
+    '/api/campaigns/:path*',
+    '/api/senders/:path*',
+    '/api/team/:path*',
+    '/api/contacts/:path*',
+    '/api/test-email/:path*',
+    '/api/preview/:path*',
+    '/api/templates/:path*',
   ],
 };
