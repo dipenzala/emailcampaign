@@ -2,14 +2,32 @@ import crypto from 'crypto';
 
 const SECRET = process.env.SESSION_SECRET || 'dev-secret-change-me';
 
+/**
+ * Session payload — flexible so that different routes can use
+ * different user identity fields (email, username, userId, role, etc.)
+ * without breaking TypeScript builds.
+ */
 export type SessionPayload = {
+  // Identity
+  userId?: string;
+  id?: string;
   email?: string;
   username?: string;
   name?: string;
+  displayName?: string;
+
+  // Authorization
   role?: string;
+  isActive?: boolean;
+  isOwner?: boolean;
+
+  // Meta
   ts: number;
+  exp?: number;
+  [key: string]: any;   // ← Allow any extra field for forward-compat
 };
 
+// ---------- Sign / verify ----------
 export function signSession(payload: SessionPayload): string {
   const data = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const sig = crypto.createHmac('sha256', SECRET).update(data).digest('base64url');
@@ -29,6 +47,7 @@ export function verifySession(token?: string): SessionPayload | null {
   }
 }
 
+// ---------- Tokens ----------
 export function hashToken(input: string): string {
   return crypto.createHash('sha256').update(input).digest('hex');
 }
@@ -37,6 +56,7 @@ export function generateToken(bytes = 32): string {
   return crypto.randomBytes(bytes).toString('hex');
 }
 
+// ---------- Passwords ----------
 export function hashPassword(password: string, salt?: string): string {
   const useSalt = salt ?? crypto.randomBytes(16).toString('hex');
   const hash = crypto.pbkdf2Sync(password, useSalt, 100_000, 64, 'sha512').toString('hex');
