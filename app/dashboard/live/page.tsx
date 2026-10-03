@@ -5,6 +5,9 @@ import Link from 'next/link';
 type DetailsType = 'campaigns' | 'sent' | 'pending' | 'queued' | 'processing' | 'failed' | 'delivered' | 'bounced' | 'suppressed';
 
 export default function LiveDashboard() {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   const [stats, setStats] = useState<any>({ total: 0, sent: 0, delivered: 0, failed: 0, bounced: 0, suppressed: 0, pending: 0, queued: 0, processing: 0, opened: 0 });
   const [senders, setSenders] = useState<any[]>([]);
   const [activity, setActivity] = useState<string[]>([]);
@@ -58,7 +61,7 @@ export default function LiveDashboard() {
           }}>● LIVE</span>
         </div>
         <p style={{ color: '#64748b', fontSize: 13, margin: 0 }}>
-          Auto-refresh every 3s · Last update {new Date().toLocaleTimeString()}
+          Auto-refresh every 3s · Last update {mounted ? new Date().toLocaleTimeString() : '--:--:--'}
         </p>
         <Link href="/campaigns/new" className="btn btn-primary" style={{ marginTop: 8 }}>
           + New Campaign
@@ -150,7 +153,7 @@ export default function LiveDashboard() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div><div style={{ fontSize: 11, color: '#64748b', marginBottom: 4 }}>NAME</div><div style={{ fontSize: 14, fontWeight: 500 }}>{campaign.name}</div></div>
             <div><div style={{ fontSize: 11, color: '#64748b', marginBottom: 4 }}>SUBJECT</div><div style={{ fontSize: 14, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{campaign.subject}</div></div>
-            <div><div style={{ fontSize: 11, color: '#64748b', marginBottom: 4 }}>CREATED</div><div style={{ fontSize: 13 }}>{new Date(campaign.createdAt).toLocaleString()}</div></div>
+            <div><div style={{ fontSize: 11, color: '#64748b', marginBottom: 4 }}>CREATED</div><div style={{ fontSize: 13 }}>{mounted ? new Date(campaign.createdAt).toLocaleString() : '...'}</div></div>
           </div>
         </div>
       )}
