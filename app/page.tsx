@@ -78,8 +78,22 @@ export default function Landing() {
         <h2 className="text-4xl md:text-6xl font-semibold tracking-tight mb-8 relative z-10">Ready to send?</h2>
         <Link href="/login" className="btn btn-primary text-base px-8 py-3.5 relative z-10">Start free →</Link>
       </section>
-      <footer className="relative border-t border-white/5 py-10 px-6 text-sm text-slate-500">
-        <div className="max-w-6xl mx-auto text-center">© {new Date().getFullYear()} EmailCampaign</div>
+      <footer className="relative border-t border-white/5 py-12 px-6">
+        <div className="max-w-6xl mx-auto">
+          <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+            <div className="flex items-center gap-3">
+              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500 to-pink-500" />
+              <span className="text-sm text-slate-400">© {new Date().getFullYear()} EmailCampaign</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-6 text-sm text-slate-500">
+              <a href="https://github.com/dipenzala/emailcampaign" className="hover:text-white transition" target="_blank" rel="noopener">GitHub</a>
+              <Link href="/privacy" className="hover:text-white transition">Privacy</Link>
+              <Link href="/terms" className="hover:text-white transition">Terms</Link>
+              <Link href="/refund" className="hover:text-white transition">Refund</Link>
+              <Link href="/login" className="hover:text-white transition">Sign in</Link>
+            </div>
+          </div>
+        </div>
       </footer>
     </div>
   );
