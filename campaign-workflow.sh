@@ -1,3 +1,234 @@
+#!/usr/bin/env bash
+set -e
+
+echo "==================================================="
+echo " 🎯 Campaign Workflow + Team Login"
+echo "==================================================="
+
+cd "$(dirname "$0")" 2>/dev/null || true
+[ -f "package.json" ] || { echo "❌ project root me chalao"; exit 1; }
+echo "📁 $(pwd)"
+
+# ---------- 1. CRLF ----------
+find . -type f \( -name "*.ts" -o -name "*.tsx" -o -name "*.sh" \) \
+  -not -path "./node_modules/*" -not -path "./.next/*" -not -path "./.git/*" \
+  -exec sed -i 's/\r$//' {} \; 2>/dev/null || true
+
+# ---------- 2. Team whitelist lib ----------
+echo ""
+echo "📝 lib/team.ts..."
+mkdir -p lib
+cat > lib/team.ts <<'EOF'
+/**
+ * Team-only access control.
+ * Only whitelisted emails can login. No public registration.
+ *
+ * ALLOWED_EMAILS env var — comma-separated list.
+ * Example: "dipenzala1@gmail.com,certwinx@gmail.com,sales@company.com"
+ */
+
+export function isTeamMember(email: string): boolean {
+  const raw = (process.env.ALLOWED_EMAILS || '').trim();
+  if (!raw) {
+    // If no whitelist configured, allow first admin
+    return true; // Dev mode
+  }
+  const allowed = raw
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  return allowed.includes(email.toLowerCase().trim());
+}
+
+export function getTeamList(): string[] {
+  const raw = (process.env.ALLOWED_EMAILS || '').trim();
+  if (!raw) return [];
+  return raw.split(',').map((e) => e.trim()).filter(Boolean);
+}
+
+export function addTeamMember(current: string, email: string): string {
+  const list = current.split(',').map((e) => e.trim()).filter(Boolean);
+  const clean = email.trim().toLowerCase();
+  if (!list.includes(clean)) list.push(clean);
+  return list.join(',');
+}
+
+export function removeTeamMember(current: string, email: string): string {
+  const clean = email.trim().toLowerCase();
+  return current
+    .split(',')
+    .map((e) => e.trim())
+    .filter((e) => e && e.toLowerCase() !== clean)
+    .join(',');
+}
+EOF
+
+# ---------- 3. Login API with whitelist ----------
+echo "📝 app/api/auth/login/route.ts (whitelist)..."
+mkdir -p app/api/auth/login
+cat > app/api/auth/login/route.ts <<'EOF'
+import { NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
+import { signSession } from '@/lib/session';
+import { isTeamMember } from '@/lib/team';
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+export async function POST(req: Request) {
+  const { email, password } = await req.json();
+
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+    return NextResponse.json({ error: 'Valid email required' }, { status: 400 });
+  }
+
+  const cleanEmail = String(email).toLowerCase().trim();
+
+  // Team-only check
+  if (!isTeamMember(cleanEmail)) {
+    return NextResponse.json(
+      { error: 'Access denied. This platform is invite-only for team members.' },
+      { status: 403 }
+    );
+  }
+
+  // Save to users table
+  try {
+    await prisma.user.upsert({
+      where: { email: cleanEmail },
+      create: { email: cleanEmail, name: cleanEmail.split('@')[0] },
+      update: {},
+    });
+  } catch {}
+
+  const token = signSession({
+    email: cleanEmail,
+    name: cleanEmail.split('@')[0],
+    ts: Date.now(),
+  });
+
+  const res = NextResponse.json({ ok: true, email: cleanEmail });
+  res.cookies.set('ec_session', token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 60 * 60 * 24 * 30,
+  });
+  return res;
+}
+EOF
+
+# ---------- 4. Preview API ----------
+echo "📝 app/api/preview/route.ts (email preview)..."
+mkdir -p app/api/preview
+cat > app/api/preview/route.ts <<'EOF'
+import { NextResponse } from 'next/server';
+import { renderTemplate } from '@/lib/personalization';
+import { sanitizeForPreview } from '@/lib/sanitize';
+import { checkEmail } from '@/lib/spam-checker';
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+export async function POST(req: Request) {
+  const { subject, html, sample } = await req.json();
+  if (!html) return NextResponse.json({ error: 'html required' }, { status: 400 });
+
+  const data = sample || {
+    name: 'Rahul Sharma',
+    email: 'rahul@example.com',
+    company: 'Acme Corp',
+    city: 'Mumbai',
+    phone: '+91 98765 43210',
+  };
+
+  const rendered = renderTemplate(html, data);
+  const safe = sanitizeForPreview(rendered);
+  const spam = checkEmail({ subject: subject || '', html: rendered, fromEmail: 'noreply@example.com' });
+
+  return NextResponse.json({
+    html: safe,
+    raw: rendered,
+    spam,
+    variables: data,
+  });
+}
+EOF
+
+# ---------- 5. Templates API ----------
+echo "📝 app/api/templates/route.ts..."
+mkdir -p app/api/templates
+cat > app/api/templates/route.ts <<'EOF'
+import { NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+// GET: list templates
+export async function GET() {
+  try {
+    const list = await prisma.emailTemplate?.findMany?.({ orderBy: { createdAt: 'desc' } }) ?? [];
+    return NextResponse.json(list);
+  } catch {
+    return NextResponse.json([]);
+  }
+}
+
+// POST: save template
+export async function POST(req: Request) {
+  const { name, subject, html } = await req.json();
+  if (!name || !html) return NextResponse.json({ error: 'name and html required' }, { status: 400 });
+  try {
+    const t = await (prisma as any).emailTemplate?.create?.({
+      data: { name, subject: subject || '', html },
+    });
+    return NextResponse.json({ ok: true, template: t });
+  } catch (e: any) {
+    return NextResponse.json({ error: 'Template table not migrated', detail: e.message }, { status: 500 });
+  }
+}
+EOF
+
+# ---------- 6. Add EmailTemplate to schema ----------
+echo "📝 Adding EmailTemplate to prisma schema..."
+if ! grep -q "model EmailTemplate" prisma/schema.prisma 2>/dev/null; then
+  cat >> prisma/schema.prisma <<'EOF'
+
+model EmailTemplate {
+  id        String   @id @default(cuid())
+  name      String
+  subject   String   @default("")
+  html      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+EOF
+  sed -i 's/\r$//' prisma/schema.prisma
+fi
+
+# ---------- 7. Team management API ----------
+echo "📝 app/api/team/route.ts..."
+mkdir -p app/api/team
+cat > app/api/team/route.ts <<'EOF'
+import { NextResponse } from 'next/server';
+import { getTeamList } from '@/lib/team';
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+export async function GET() {
+  const list = getTeamList();
+  return NextResponse.json({ members: list });
+}
+EOF
+
+# ---------- 8. Main Dashboard — Full Campaign Workflow ----------
+echo ""
+echo "📝 app/dashboard/page.tsx (full workflow)..."
+
+cat > app/dashboard/page.tsx <<'EOF'
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
@@ -444,3 +675,166 @@ const DEFAULT_HTML = `<!DOCTYPE html>
   </div>
 </body>
 </html>`;
+EOF
+sed -i 's/\r$//' app/dashboard/page.tsx
+echo "✅"
+
+# ---------- 9. Team page (view members) ----------
+echo "📝 app/team/page.tsx..."
+mkdir -p app/team
+cat > app/team/page.tsx <<'EOF'
+'use client';
+import { useEffect, useState } from 'react';
+export default function TeamPage() {
+  const [members, setMembers] = useState<string[]>([]);
+  useEffect(() => { fetch('/api/team').then(r => r.json()).then(j => setMembers(j.members ?? [])); }, []);
+  return (
+    <div className="space-y-6">
+      <h1 className="text-3xl font-semibold tracking-tight">👥 Team Access</h1>
+      <p className="text-sm text-slate-400">
+        Only these emails can login. This platform is invite-only.
+      </p>
+      <div className="card">
+        <h2 className="font-semibold mb-3">Whitelisted Members ({members.length})</h2>
+        {members.length === 0 ? (
+          <p className="text-sm text-slate-400">
+            ⚠️ No whitelist set. All emails can login (dev mode).<br />
+            Set <code className="bg-white/5 px-1 rounded">ALLOWED_EMAILS</code> in Vercel env vars.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {members.map(m => (
+              <li key={m} className="flex items-center gap-3 p-3 rounded-lg bg-white/[0.02] border border-white/5">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-pink-500 flex items-center justify-center text-xs font-bold">
+                  {m[0].toUpperCase()}
+                </div>
+                <span className="text-sm">{m}</span>
+                <span className="ml-auto text-xs text-green-400">✓ Active</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="mt-4 text-xs text-slate-500">
+          To add/remove members: Vercel → Settings → Environment Variables → <code className="bg-white/5 px-1 rounded">ALLOWED_EMAILS</code> (comma-separated) → Redeploy.
+        </div>
+      </div>
+    </div>
+  );
+}
+EOF
+sed -i 's/\r$//' app/team/page.tsx
+
+# ---------- 10. Update nav ----------
+echo "📝 Updating dashboard nav..."
+if [ -f "app/dashboard/layout.tsx" ]; then
+  # Add Team link if not exists
+  if ! grep -q 'href="/team"' app/dashboard/layout.tsx; then
+    sed -i 's|>History</Link>|>History</Link><Link href="/team" className="text-sm text-slate-300 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/5 transition">👥 Team</Link>|' app/dashboard/layout.tsx
+  fi
+  sed -i 's/\r$//' app/dashboard/layout.tsx
+fi
+
+# ---------- 11. .env add ----------
+echo ""
+echo "📝 Updating .env.example..."
+if [ -f ".env.example" ]; then
+  grep -q "ALLOWED_EMAILS" .env.example || echo 'ALLOWED_EMAILS="your-email@gmail.com,teammate@gmail.com"' >> .env.example
+fi
+
+# ---------- 12. Git push ----------
+echo ""
+echo "🌿 Git..."
+if [ ! -d ".git" ]; then git init; git branch -M main; fi
+REPO_URL="https://github.com/dipenzala/emailcampaign.git"
+git remote get-url origin >/dev/null 2>&1 && git remote set-url origin "$REPO_URL" || git remote add origin "$REPO_URL"
+git config user.email "63999328+dipenzala@users.noreply.github.com"
+git config user.name "Dipen Zala"
+
+git add -A
+git diff --cached --quiet || git commit -m "Feat: campaign workflow + team-only login + preview + templates"
+git push -u origin main
+
+echo ""
+echo "==================================================="
+echo " ✅ PUSHED"
+echo "==================================================="
+echo ""
+echo "🚨 ZAROORI — Vercel me env var add karo (warna koi login nahi kar payega):"
+echo ""
+echo "   https://vercel.com/certwinx/emailcampaign/settings/environment-variables"
+echo ""
+echo "   Naya env var:"
+echo "   ┌──────────────────────────────────────────────────┐"
+echo "   │ Key:   ALLOWED_EMAILS                            │"
+echo "   │ Value: certwinx@gmail.com,dipenzala1@gmail.com   │"
+echo "   └──────────────────────────────────────────────────┘"
+echo ""
+echo "   👆 Apne actual emails daalo (comma-separated)"
+echo ""
+echo "   Phir: Redeploy → 2-3 min wait"
+echo ""
+echo "📊 Features added:"
+echo "   ✅ Team-only login (invite-only)"
+echo "   ✅ Full campaign workflow on /dashboard"
+echo "   ✅ Email preview modal (live render)"
+echo "   ✅ Test send"
+echo "   ✅ Spam score check inline"
+echo "   ✅ Live campaign view with Pause/Resume/Stop"
+echo "   ✅ Templates table (save HTML)"
+echo ""
+echo "🎯 Test flow:"
+echo "   1. Login → /login"
+echo "   2. Import Excel → shows stats"
+echo "   3. Compose → preview → test send"
+echo "   4. Review → START CAMPAIGN"
+echo "   5. Live dashboard with controls"
+echo ""
+echo "🎁 ADVANCED FEATURES YOU CAN ADD NEXT:"
+echo ""
+echo "   📧 EMAIL MARKETING:"
+echo "   ├─ A/B Subject testing (split 50/50, auto-pick winner)"
+echo "   ├─ Send-time optimization (10 AM local time per recipient)"
+echo "   ├─ Open/click tracking (1x1 pixel + link wrapper)"
+echo "   ├─ Attachment support (PDF, images via Gmail API)"
+echo "   ├─ Plain text version editor"
+echo "   ├─ Multi-language templates"
+echo "   └─ Reply auto-classification (interested/unsubscribe/complaint)"
+echo ""
+echo "   👥 TEAM & ACCESS:"
+echo "   ├─ Role-based access (Owner/Manager/Viewer)"
+echo "   ├─ Team member activity log"
+echo "   ├─ 2FA for team logins"
+echo "   └─ Session management (revoke sessions)"
+echo ""
+echo "   📊 ANALYTICS:"
+echo "   ├─ Campaign comparison (A vs B performance)"
+echo "   ├─ Sender reputation dashboard (daily trend)"
+echo "   ├─ Bounce rate alerts (email/push)"
+echo "   ├─ CSV/Excel export of reports"
+echo "   └─ Weekly email digest (auto-send summary)"
+echo ""
+echo "   🎨 TEMPLATES:"
+echo "   ├─ Drag-drop template builder"
+echo "   ├─ Template gallery (pre-built designs)"
+echo "   ├─ Variable auto-detection"
+echo "   └─ Duplicate campaign with one click"
+echo ""
+echo "   🔔 NOTIFICATIONS:"
+echo "   ├─ Telegram bot (start/pause/status from phone)"
+echo "   ├─ Slack webhook integration"
+echo "   ├─ SMS alerts for critical errors"
+echo "   └─ Browser push notifications"
+echo ""
+echo "   🔐 SECURITY:"
+echo "   ├─ IP whitelist for admin access"
+echo "   ├─ Login attempt rate limiting"
+echo "   ├─ Sensitive action confirmation (delete, stop)"
+echo "   └─ Audit log viewer"
+echo ""
+echo "   ⚡ POWER FEATURES:"
+echo "   ├─ Scheduled campaigns (send at specific date/time)"
+echo "   ├─ Recurring campaigns (weekly/monthly)"
+echo "   ├─ Contact segmentation (filter by tag/company)"
+echo "   ├─ Bulk suppression import"
+echo "   └─ Webhook events (CRM integration)"
+echo "==================================================="

@@ -21,7 +21,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <Link href="/senders" className="text-sm text-slate-300 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/5 transition">Senders</Link>
             <Link href="/senders/rotation" className="text-sm text-slate-300 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/5 transition">Rotation</Link>
             <Link href="/anti-spam" className="text-sm text-slate-300 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/5 transition">🛡️ Anti-Spam</Link>
-            <Link href="/history" className="text-sm text-slate-300 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/5 transition">History</Link>
+            <Link href="/history" className="text-sm text-slate-300 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/5 transition">History</Link><Link href="/team" className="text-sm text-slate-300 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/5 transition">👥 Team</Link>
             <div className="w-px h-5 bg-white/10 mx-2" />
             <span className="text-xs text-slate-500 hidden md:inline">{session.email}</span>
             <LogoutButton />

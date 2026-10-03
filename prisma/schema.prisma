@@ -122,3 +122,12 @@ model AuditLog {
   meta      Json?
   createdAt DateTime @default(now())
 }
+
+model EmailTemplate {
+  id        String   @id @default(cuid())
+  name      String
+  subject   String   @default("")
+  html      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
