@@ -5,11 +5,11 @@ node_modules
 .env
 .env.local
 .env*.local
-*.log
-.vercel
-.DS_Store
+*.md
 .vscode
+.idea
 coverage
+.github
 Dockerfile
+Dockerfile.worker
 .dockerignore
-README.md

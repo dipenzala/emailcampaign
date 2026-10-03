@@ -1,0 +1,29 @@
+# ---- Worker Dockerfile ----
+# Runs the BullMQ worker process on Northflank / any Node host
+FROM node:20-alpine
+
+WORKDIR /app
+
+# System deps
+RUN apk add --no-cache openssl libc6-compat
+
+# Install dependencies (needs dev deps for tsx)
+COPY package*.json ./
+COPY prisma ./prisma
+RUN npm install --include=dev --ignore-scripts
+
+# Prisma client generate
+RUN npx prisma generate
+
+# Copy app code
+COPY . .
+
+# Ensure tsx is available
+RUN npm install -g tsx@4.19.2
+
+# Health check
+HEALTHCHECK --interval=60s --timeout=10s --start-period=20s --retries=3 \
+  CMD node -e "console.log('worker ok')" || exit 1
+
+# Start worker
+CMD ["npx", "--yes", "tsx", "workers/sender.worker.ts"]
