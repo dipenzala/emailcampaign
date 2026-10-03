@@ -1,1 +1,1 @@
-worker: npm run worker
+worker: npx --yes tsx workers/sender.worker.ts
