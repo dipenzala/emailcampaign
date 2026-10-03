@@ -1,3 +1,20 @@
+#!/usr/bin/env bash
+
+echo "==============================================="
+echo " 🛑 Fix: Warm-up Infinite Loop + Options"
+echo "==============================================="
+
+cd "$(dirname "$0")" 2>/dev/null || true
+[ -f "package.json" ] || { echo "❌ project root me chalao"; exit 1; }
+echo "📁 $(pwd)"
+echo ""
+
+# ==========================================
+# 1. Fix local-sender.js — Stop on cap
+# ==========================================
+echo "🔧 Step 1: Fixing warm-up loop in worker..."
+
+cat > local-sender.js <<'JSEOF'
 // ==========================================
 // Smart Local Sender — No Infinite Loops
 // ==========================================
@@ -330,3 +347,41 @@ async function poll(oauthClients) {
   poll(oauthClients);
   setInterval(() => poll(oauthClients), POLL_MS);
 })().catch(e => { console.error('Fatal:', e.message); process.exit(1); });
+JSEOF
+
+# Also copy for Northflank deployment
+cp local-sender.js sender.js 2>/dev/null || true
+echo "   ✅ local-sender.js fixed (cooldown + no loop)"
+echo ""
+
+# ==========================================
+# 2. Git push
+# ==========================================
+echo "🌿 Step 2: Git push..."
+git config --local user.email "63999328+dipenzala@users.noreply.github.com"
+git config --local user.name "Dipen Zala"
+
+git add -A
+git diff --cached --quiet || git commit -m "Fix: warm-up cap cooldown (no infinite loop)"
+git push -u origin main 2>&1 | tail -5
+
+echo ""
+echo "==============================================="
+echo " ✅ FIXED"
+echo "==============================================="
+echo ""
+echo "🎯 AB 2 OPTIONS:"
+echo ""
+echo "OPTION A — Kal tak wait karo (recommended):"
+echo "  • Aaj ke 5 emails per sender ho gaye"
+echo "  • Kal subah automatic resume hoga (Day 2 = 10/day)"
+echo "  • 3 pending emails kal jayengi"
+echo ""
+echo "OPTION B — Turant bhejne ke liye warm-up disable karo:"
+echo "  • /senders/rotation kholo"
+echo "  • Daily Limit 100 karo"
+echo "  • Ya DB me warmupEnabled=false karo"
+echo ""
+echo "Northflank worker abhi bhi chalega — loop fix ho gaya."
+echo "Logs me 'paused 5 min' dikhega instead of infinite loop."
+echo "==============================================="
