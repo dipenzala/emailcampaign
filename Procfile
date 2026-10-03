@@ -1,1 +1,1 @@
-worker: npx --yes tsx workers/sender.worker.ts
+worker: node local-sender.js

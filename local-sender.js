@@ -1,5 +1,5 @@
 // ==========================================
-// Smart Local Sender — Zero Error Edition
+// Pure DB polling worker — NO Redis, NO BullMQ
 // ==========================================
 require('dotenv').config();
 const { PrismaClient } = require('@prisma/client');
@@ -7,21 +7,19 @@ const { google } = require('googleapis');
 const crypto = require('crypto');
 
 const prisma = new PrismaClient();
-const POLL_MS = 3000;
+const POLL_MS = 2000;
 const BATCH = 3;
 
 // ---------- Crypto ----------
 const KEY = Buffer.from(process.env.TOKEN_ENCRYPTION_KEY || '', 'hex');
 function decrypt(payload) {
-  try {
-    const buf = Buffer.from(payload, 'base64');
-    const iv = buf.subarray(0, 12);
-    const tag = buf.subarray(12, 28);
-    const data = buf.subarray(28);
-    const d = crypto.createDecipheriv('aes-256-gcm', KEY, iv);
-    d.setAuthTag(tag);
-    return Buffer.concat([d.update(data), d.final()]).toString('utf8');
-  } catch { return null; }
+  const buf = Buffer.from(payload, 'base64');
+  const iv = buf.subarray(0, 12);
+  const tag = buf.subarray(12, 28);
+  const data = buf.subarray(28);
+  const d = crypto.createDecipheriv('aes-256-gcm', KEY, iv);
+  d.setAuthTag(tag);
+  return Buffer.concat([d.update(data), d.final()]).toString('utf8');
 }
 
 // ---------- OAuth ----------
@@ -31,31 +29,6 @@ function oauthClient() {
     process.env.GOOGLE_CLIENT_SECRET,
     process.env.GOOGLE_REDIRECT_URI
   );
-}
-
-// ---------- Test sender token (returns working OAuth2 client or null) ----------
-async function testSenderToken(sender) {
-  try {
-    const access = sender.accessToken ? decrypt(sender.accessToken) : '';
-    const refresh = decrypt(sender.refreshToken);
-    if (!refresh) return null;
-
-    const c = oauthClient();
-    c.setCredentials({ access_token: access, refresh_token: refresh });
-    await c.getAccessToken();  // forces refresh check
-    return c;
-  } catch (err) {
-    const msg = err.message || '';
-    if (/insufficient|permission|invalid_grant|expired|revoked/i.test(msg)) {
-      console.log(`   ❌ ${sender.email} — token expired: ${msg.slice(0, 60)}`);
-      // Auto-mark as disconnected
-      await prisma.senderAccount.update({
-        where: { id: sender.id },
-        data: { status: 'DISCONNECTED', isActive: false },
-      }).catch(() => {});
-    }
-    return null;
-  }
 }
 
 // ---------- MIME ----------
@@ -117,35 +90,38 @@ function effectiveLimit(s) {
   return t ? Math.min(t.limit, s.dailyLimit) : s.dailyLimit;
 }
 
-// ---------- Send one ----------
-async function sendOne(recipient, oauthClients) {
-  const campaign = await prisma.campaign.findUnique({ where: { id: recipient.campaignId } });
-  if (!campaign || campaign.status !== 'RUNNING') return;
-
-  // Check sender pool
-  const senderEmails = Object.keys(oauthClients);
-  if (senderEmails.length === 0) {
-    console.log('❌ No working senders — reconnect required');
-    await prisma.campaignRecipient.update({
-      where: { id: recipient.id },
-      data: { status: 'QUEUED' },
-    }).catch(() => {});
-    return;
+// ---------- Pick sender ----------
+async function pickSender(batchLimit) {
+  const senders = await prisma.senderAccount.findMany({
+    where: { status: 'CONNECTED', refreshToken: { not: null }, isActive: true },
+    orderBy: [{ sentToday: 'asc' }, { lastSuccessAt: 'asc' }],
+  });
+  for (const s of senders) {
+    if (s.batchCount < batchLimit) return s;
   }
+  // Reset batch counts
+  await prisma.senderAccount.updateMany({
+    where: { status: 'CONNECTED', isActive: true },
+    data: { batchCount: 0 },
+  });
+  return senders[0] || null;
+}
 
-  // Suppression check
+// ---------- Send one ----------
+async function sendOne(recipient) {
+  const campaign = await prisma.campaign.findUnique({ where: { id: recipient.campaignId } });
+  if (!campaign || campaign.status !== 'RUNNING') return false;
+
+  // Suppression
   const sup = await prisma.suppressionList.findUnique({ where: { email: recipient.contact.email } });
   if (sup) {
     await prisma.campaignRecipient.update({
       where: { id: recipient.id },
       data: { status: 'SUPPRESSED', errorCode: 'SUPPRESSED', errorMessage: sup.reason },
     });
-    await prisma.campaign.update({
-      where: { id: campaign.id },
-      data: { suppressedCount: { increment: 1 } },
-    });
-    console.log(`⏭️  SKIP ${recipient.contact.email} (suppressed)`);
-    return;
+    await prisma.campaign.update({ where: { id: campaign.id }, data: { suppressedCount: { increment: 1 } } });
+    console.log(`⏭️  SUPPRESSED: ${recipient.contact.email} (${sup.reason})`);
+    return true;
   }
 
   // Mark processing
@@ -154,35 +130,27 @@ async function sendOne(recipient, oauthClients) {
     data: { status: 'PROCESSING', attemptCount: recipient.attemptCount + 1 },
   });
 
-  // Pick sender with least used
-  const senders = await prisma.senderAccount.findMany({
-    where: { email: { in: senderEmails } },
-    orderBy: [{ sentToday: 'asc' }, { lastSuccessAt: 'asc' }],
-  });
-
-  let sender = null;
-  for (const s of senders) {
-    if (s.batchCount < (campaign.batchLimit ?? 10)) {
-      const cap = effectiveLimit(s);
-      if (s.sentToday < cap) {
-        sender = s;
-        break;
-      }
-    }
+  // Pick sender
+  const sender = await pickSender(campaign.batchLimit ?? 10);
+  if (!sender) {
+    console.log('❌ No sender available');
+    await prisma.campaignRecipient.update({ where: { id: recipient.id }, data: { status: 'QUEUED' } });
+    return false;
   }
 
-  if (!sender) {
-    // All senders capped
-    console.log('⏸️  All senders at warm-up cap');
-    await prisma.campaignRecipient.update({
-      where: { id: recipient.id },
-      data: { status: 'QUEUED' },
-    });
-    return;
+  // Warm-up check
+  const cap = effectiveLimit(sender);
+  if (sender.sentToday >= cap) {
+    console.log(`⏸️  Warm-up cap: ${sender.email} (${sender.sentToday}/${cap})`);
+    await prisma.campaignRecipient.update({ where: { id: recipient.id }, data: { status: 'QUEUED' } });
+    return false;
   }
 
   // Build + send
-  const c = oauthClients[sender.email];
+  const access = sender.accessToken ? decrypt(sender.accessToken) : '';
+  const refresh = decrypt(sender.refreshToken);
+  const c = oauthClient();
+  c.setCredentials({ access_token: access, refresh_token: refresh });
   const gmail = google.gmail({ version: 'v1', auth: c });
 
   const unsubUrl = `${process.env.APP_URL}/api/unsubscribe/${Buffer.from(recipient.contact.email).toString('base64url')}`;
@@ -221,10 +189,7 @@ async function sendOne(recipient, oauthClients) {
         errorMessage: null,
       },
     });
-    await prisma.campaign.update({
-      where: { id: campaign.id },
-      data: { sentCount: { increment: 1 } },
-    });
+    await prisma.campaign.update({ where: { id: campaign.id }, data: { sentCount: { increment: 1 } } });
     await prisma.senderAccount.update({
       where: { id: sender.id },
       data: { sentToday: { increment: 1 }, batchCount: { increment: 1 }, lastSuccessAt: new Date() },
@@ -232,56 +197,59 @@ async function sendOne(recipient, oauthClients) {
 
     console.log(`✅ SENT [${sender.email}] → ${recipient.contact.email}`);
 
-    // Campaign complete check
+    // Check complete
     const remaining = await prisma.campaignRecipient.count({
       where: { campaignId: campaign.id, status: { in: ['QUEUED', 'PROCESSING'] } },
     });
     if (remaining === 0) {
+        stopWhenComplete = true;
       await prisma.campaign.update({
         where: { id: campaign.id },
         data: { status: 'COMPLETED', completedAt: new Date() },
       });
       console.log('🎉 CAMPAIGN COMPLETED');
     }
+    return true;
   } catch (err) {
     const msg = err?.message ?? 'Send failed';
+    const isBounce = /550|551|552|553|554|5\.1\.1|user unknown|mailbox|invalid/i.test(msg);
 
-    // AUTO-SUPPRESS: Any permanent error → block this recipient forever
-    const isPermanent = /insufficient|permission|invalid_grant|unauthorized|550|551|552|553|554|5\.1\.1|user unknown|mailbox|invalid recipient|not found/i.test(msg);
-
-    if (isPermanent) {
+    if (isBounce) {
       await prisma.suppressionList.upsert({
         where: { email: recipient.contact.email },
-        create: { email: recipient.contact.email, reason: 'MANUAL_BLOCK' },
+        create: { email: recipient.contact.email, reason: 'BOUNCED' },
         update: {},
-      }).catch(() => {});
+      });
       await prisma.campaignRecipient.update({
         where: { id: recipient.id },
-        data: {
-          status: 'SUPPRESSED',
-          errorCode: 'AUTO_SUPPRESSED',
-          errorMessage: msg.slice(0, 200),
-        },
+        data: { status: 'BOUNCED', errorCode: 'BOUNCED', errorMessage: msg, failedAt: new Date() },
       });
       await prisma.campaign.update({
         where: { id: campaign.id },
-        data: { suppressedCount: { increment: 1 } },
+        data: { failedCount: { increment: 1 }, bouncedCount: { increment: 1 } },
       });
-      console.log(`⛔ SUPPRESSED ${recipient.contact.email} — won't retry (${msg.slice(0, 40)})`);
-    } else {
-      // Non-permanent — retry
+      console.log(`⚠️  BOUNCED: ${recipient.contact.email}`);
+    } else if (recipient.attemptCount < 3) {
       await prisma.campaignRecipient.update({
         where: { id: recipient.id },
-        data: { status: 'QUEUED', errorMessage: msg.slice(0, 200) },
+        data: { status: 'QUEUED', errorMessage: msg },
       });
-      console.log(`🔄 RETRY ${recipient.contact.email} (${msg.slice(0, 40)})`);
+      console.log(`🔄 RETRY: ${recipient.contact.email} (${msg.slice(0, 60)})`);
+    } else {
+      await prisma.campaignRecipient.update({
+        where: { id: recipient.id },
+        data: { status: 'FAILED', errorCode: String(err?.code ?? 'ERR'), errorMessage: msg, failedAt: new Date() },
+      });
+      await prisma.campaign.update({ where: { id: campaign.id }, data: { failedCount: { increment: 1 } } });
+      console.log(`❌ FAILED: ${recipient.contact.email} (${msg.slice(0, 60)})`);
     }
+    return false;
   }
 }
 
 // ---------- Poll loop ----------
 let busy = false;
-async function poll(oauthClients) {
+async function poll() {
   if (busy) return;
   busy = true;
   try {
@@ -297,7 +265,7 @@ async function poll(oauthClients) {
 
     if (recips.length > 0) {
       console.log(`\n📬 ${recips.length} queued — processing...`);
-      for (const r of recips) await sendOne(r, oauthClients);
+      for (const r of recips) await sendOne(r);
     }
   } catch (e) {
     console.error('Poll error:', e.message);
@@ -306,53 +274,23 @@ async function poll(oauthClients) {
   }
 }
 
-// ---------- Startup: test all senders first ----------
-(async () => {
-  console.log('');
-  console.log('═══════════════════════════════════════════');
-  console.log(' 🚀 Smart Local Sender');
-  console.log('═══════════════════════════════════════════');
-  console.log('');
+// ---------- Start ----------
+console.log('');
+console.log('═══════════════════════════════════════════');
+console.log(' 🚀 LOCAL SENDER (Pure DB polling)');
+console.log('═══════════════════════════════════════════');
+console.log('   Poll every:  ' + (POLL_MS / 1000) + 's');
+console.log('   Batch:       ' + BATCH);
+console.log('   No Redis. No BullMQ. Just Prisma + Gmail.');
+console.log('');
+console.log('🎯 Listening for QUEUED recipients...');
+console.log('');
 
-  // Test senders
-  console.log('🔍 Testing sender tokens...');
-  const senders = await prisma.senderAccount.findMany({ where: { status: 'CONNECTED' } });
-  console.log(`   Found ${senders.length} sender(s)\n`);
+poll();
+setInterval(poll, POLL_MS);
 
-  const oauthClients = {};
-  for (const s of senders) {
-    process.stdout.write(`   ${s.email}... `);
-    const client = await testSenderToken(s);
-    if (client) {
-      oauthClients[s.email] = client;
-      console.log('✅ OK');
-    } else {
-      console.log('❌ FAILED');
-    }
-  }
-
-  console.log('');
-  console.log(`✅ Working senders: ${Object.keys(oauthClients).length}/${senders.length}`);
-  console.log('');
-
-  if (Object.keys(oauthClients).length === 0) {
-    console.log('╔═══════════════════════════════════════════╗');
-    console.log('║  ❌ NO WORKING SENDERS                    ║');
-    console.log('║  → Reconnect at /senders                  ║');
-    console.log('╚═══════════════════════════════════════════╝');
-    console.log('');
-    process.exit(1);
-  }
-
-  console.log('🎯 Listening for QUEUED recipients...');
-  console.log('');
-
-  poll(oauthClients);
-  setInterval(() => poll(oauthClients), POLL_MS);
-
-  process.on('SIGINT', async () => {
-    console.log('\n🛑 Stopping...');
-    await prisma.$disconnect();
-    process.exit(0);
-  });
-})();
+process.on('SIGINT', async () => {
+  console.log('\n🛑 Stopping...');
+  await prisma.$disconnect();
+  process.exit(0);
+});

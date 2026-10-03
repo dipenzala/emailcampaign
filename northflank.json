@@ -1,0 +1,21 @@
+{
+  "apiVersion": "v1",
+  "kind": "Workload",
+  "metadata": {
+    "name": "emailcampaign-worker"
+  },
+  "spec": {
+    "type": "worker",
+    "build": {
+      "type": "dockerfile",
+      "dockerfilePath": "/Dockerfile.worker",
+      "dockerWorkDir": "/"
+    },
+    "runtime": {
+      "process": "worker"
+    },
+    "resources": {
+      "plan": "nf-compute-20"
+    }
+  }
+}
