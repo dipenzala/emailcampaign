@@ -7,20 +7,51 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ============ USERS & TEAM ============
 model User {
-  id           String    @id @default(cuid())
-  email        String?   @unique
-  username     String?   @unique
-  name         String?
-  displayName  String?
-  passwordHash String?
-  role         String    @default("user")
-  isActive     Boolean   @default(true)
-  lastLoginAt  DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id            String    @id @default(cuid())
+  email         String?   @unique
+  username      String?   @unique
+  name          String?
+  displayName   String?
+  passwordHash  String?
+  role          String    @default("user")
+  isActive      Boolean   @default(true)
+  lastLoginAt   DateTime?
+  invitedBy     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sessions      Session[]
 }
 
+model Session {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  deviceId   String?
+  userAgent  String?
+  ipAddress  String?
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+}
+
+model Invitation {
+  id         String    @id @default(cuid())
+  email      String?
+  username   String?
+  token      String    @unique
+  role       String    @default("user")
+  invitedBy  String?
+  acceptedAt DateTime?
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+  @@index([token])
+}
+
+// ============ SENDERS ============
 model SenderAccount {
   id              String    @id @default(cuid())
   email           String    @unique
@@ -49,19 +80,31 @@ model SenderAccount {
   updatedAt       DateTime  @updatedAt
 }
 
+// ============ CONTACTS ============
 model Contact {
-  id            String    @id @default(cuid())
-  email         String    @unique
+  id            String              @id @default(cuid())
+  email         String              @unique
   name          String?
   company       String?
   phone         String?
   city          String?
   custom        Json?
-  isRoleAccount Boolean   @default(false)
-  isDisposable  Boolean   @default(false)
-  hygieneScore  Int       @default(100)
-  createdAt     DateTime  @default(now())
+  isRoleAccount Boolean             @default(false)
+  isDisposable  Boolean             @default(false)
+  hygieneScore  Int                 @default(100)
+  createdAt     DateTime            @default(now())
   recipients    CampaignRecipient[]
+  contactCustom ContactCustomField[]
+}
+
+model ContactCustomField {
+  id        String   @id @default(cuid())
+  contactId String
+  key       String
+  value     String?
+  createdAt DateTime @default(now())
+  contact   Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  @@index([contactId])
 }
 
 model SuppressionList {
@@ -71,6 +114,21 @@ model SuppressionList {
   createdAt DateTime @default(now())
 }
 
+// ============ TEMPLATES ============
+model EmailTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  subject     String?
+  html        String
+  description String?
+  category    String?
+  isDefault   Boolean  @default(false)
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ============ CAMPAIGNS ============
 model Campaign {
   id              String   @id @default(cuid())
   name            String
@@ -90,6 +148,7 @@ model Campaign {
   startedAt       DateTime?
   completedAt     DateTime?
   recipients      CampaignRecipient[]
+  attachments     Attachment[]
 }
 
 model CampaignRecipient {
@@ -114,6 +173,20 @@ model CampaignRecipient {
   @@index([campaignId, status])
 }
 
+model Attachment {
+  id         String   @id @default(cuid())
+  campaignId String?
+  filename   String
+  mimeType   String?
+  size       Int?
+  data       String?
+  url        String?
+  createdAt  DateTime @default(now())
+  campaign   Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  @@index([campaignId])
+}
+
+// ============ LOGS ============
 model MessageLog {
   id          String   @id @default(cuid())
   campaignId  String
@@ -121,11 +194,26 @@ model MessageLog {
   level       String
   message     String
   createdAt   DateTime @default(now())
+  @@index([campaignId])
 }
 
 model AuditLog {
   id        String   @id @default(cuid())
+  userId    String?
   action    String
   meta      Json?
+  ipAddress String?
+  userAgent String?
   createdAt DateTime @default(now())
+  @@index([userId])
+}
+
+model AnalyticsEvent {
+  id        String   @id @default(cuid())
+  campaignId String?
+  type      String
+  meta      Json?
+  createdAt DateTime @default(now())
+  @@index([campaignId])
+  @@index([type])
 }
