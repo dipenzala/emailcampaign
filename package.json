@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
-    "bullmq": "^5.28.0",
+    "bullmq": "5.28.0",
     "googleapis": "^144.0.0",
     "ioredis": "^5.4.1",
     "next": "14.2.18",

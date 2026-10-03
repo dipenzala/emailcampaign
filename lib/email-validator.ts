@@ -2,15 +2,13 @@ import dns from 'dns/promises';
 
 /**
  * Universal email validator with MX record check.
- * Accepts: Gmail, Outlook, Yahoo, custom domains — anything with a real mail server.
- * Rejects: Invalid syntax, disposable, no-MX (fake) domains.
+ * Uses plain object types (no namespace types) — build-safe.
  */
 
 // ---------- Level 1: Syntax ----------
 export function isValidEmailSyntax(e: string): boolean {
   if (!e) return false;
   const clean = e.trim().toLowerCase();
-  // RFC-ish regex — catches 99% of typos
   return /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(clean);
 }
 
@@ -35,36 +33,39 @@ type MxCacheEntry = { hasMx: boolean; records: string[]; expiresAt: number };
 const mxCache = new Map<string, MxCacheEntry>();
 const MX_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
+// Plain type (no dns.MxRecord namespace reference — avoids TS build issues)
+type SimpleMxRecord = { exchange: string; priority: number };
+
 export async function domainHasMx(domain: string): Promise<{ hasMx: boolean; records: string[] }> {
   const clean = domain.toLowerCase().trim();
 
-  // Cache hit
   const cached = mxCache.get(clean);
   if (cached && cached.expiresAt > Date.now()) {
     return { hasMx: cached.hasMx, records: cached.records };
   }
 
   try {
-    // 4-second timeout
     const timeout = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error('DNS timeout')), 4000)
     );
 
-    const records = await Promise.race([
+    // Cast to plain type — no namespace reference
+    const records = (await Promise.race([
       dns.resolveMx(clean),
       timeout,
-    ]) as dns.MxRecord[];
+    ])) as unknown as SimpleMxRecord[];
 
     const hasMx = Array.isArray(records) && records.length > 0;
-    const hosts = records
-      .sort((a, b) => a.priority - b.priority)
-      .map((r) => r.exchange)
-      .filter(Boolean);
+    const hosts = hasMx
+      ? records
+          .sort((a, b) => (a.priority || 0) - (b.priority || 0))
+          .map((r) => r.exchange)
+          .filter(Boolean)
+      : [];
 
     mxCache.set(clean, { hasMx, records: hosts, expiresAt: Date.now() + MX_CACHE_TTL });
     return { hasMx, records: hosts };
   } catch {
-    // NXDOMAIN, no MX, timeout → reject
     mxCache.set(clean, { hasMx: false, records: [], expiresAt: Date.now() + MX_CACHE_TTL });
     return { hasMx: false, records: [] };
   }
@@ -101,33 +102,11 @@ export async function validateEmailFull(email: string): Promise<FullValidation> 
   return { valid: true, reason: 'OK', domain, mxRecords: records };
 }
 
-// ---------- Batch validation with concurrency ----------
-export async function validateBatch(
-  emails: string[],
-  concurrency = 30,
-): Promise<Map<string, FullValidation>> {
-  const results = new Map<string, FullValidation>();
-  const queue = [...emails];
-  let active = 0;
-
-  return new Promise((resolve) => {
-    const next = () => {
-      if (queue.length === 0 && active === 0) return resolve(results);
-      while (active < concurrency && queue.length > 0) {
-        const email = queue.shift()!;
-        active++;
-        validateEmailFull(email)
-          .then((r) => results.set(email, r))
-          .catch(() => results.set(email, { valid: false, reason: 'NO_MX', domain: '' }))
-          .finally(() => { active--; next(); });
-      }
-    };
-    next();
-  });
-}
-
-// ---------- Batch domain-only validation (faster — deduped domains) ----------
-export async function validateDomains(domains: string[], concurrency = 20): Promise<Map<string, boolean>> {
+// ---------- Batch domain validation ----------
+export async function validateDomains(
+  domains: string[],
+  concurrency = 20,
+): Promise<Map<string, boolean>> {
   const results = new Map<string, boolean>();
   const unique = Array.from(new Set(domains.map((d) => d.toLowerCase().trim())));
   const queue = [...unique];
