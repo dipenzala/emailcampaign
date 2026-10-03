@@ -91,6 +91,7 @@ export default function CampaignLive() {
           {s?.status !== 'COMPLETED' && s?.status !== 'STOPPED' && (
             <button onClick={() => act('stop')} disabled={busy} className="btn btn-danger text-xs md:text-sm">⏹️ Stop</button>
           )}
+          <a href={`/api/campaigns/${id}/download`} className="btn btn-ghost text-xs md:text-sm" download>📥 Download</a>
           <button onClick={deleteCampaign} disabled={busy} className="btn btn-danger text-xs md:text-sm">🗑️ Delete</button>
           <Link href="/history" className="btn btn-ghost text-xs md:text-sm">← Back</Link>
         </div>

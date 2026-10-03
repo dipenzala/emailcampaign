@@ -232,6 +232,9 @@ export default function HistoryPage() {
                 <div className="text-[10px] text-slate-500 mb-3">{new Date(c.createdAt).toLocaleString()}</div>
                 <div className="flex gap-2">
                   <Link href={`/campaigns/${c.id}`} className="btn btn-ghost text-xs flex-1 justify-center">Open</Link>
+                  <a href={`/api/campaigns/${c.id}/download`} className="btn btn-ghost text-xs flex-1 justify-center" download>
+                    📥 CSV
+                  </a>
                   <button onClick={() => deleteCampaign(c.id, c.name)} disabled={busy} className="btn btn-danger text-xs flex-1 justify-center">🗑️ Delete</button>
                 </div>
               </div>
