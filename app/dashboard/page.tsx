@@ -4,7 +4,7 @@ import Link from 'next/link';
 
 type Contact = { email: string; name: string; company: string };
 type Sender = { id: string; email: string; status: string };
-type Summary = { totalRows: number; valid: number; invalid: number; duplicates: number; suppressed: number; disposable?: number; contacts: Contact[] };
+type Summary = { totalRows: number; valid: number; invalid: number; duplicates: number; suppressed: number; disposable?: number; noMx?: number; contacts: Contact[] };
 type Preview = { html: string; spam: { score: number; blocked: boolean; warning: boolean; issues: any[] } };
 
 export default function CampaignDashboard() {
@@ -148,7 +148,7 @@ export default function CampaignDashboard() {
               className="block mx-auto mb-4 text-sm"
               id="file-upload"
             />
-            <p className="text-xs text-slate-500 mb-4">Supported: .xlsx, .xls, .csv (email column auto-detected)</p>
+            <p className="text-xs text-slate-500 mb-4">Supported: .xlsx, .xls, .csv · All valid domains accepted (Gmail, Outlook, custom…))</p>
             <button className="btn btn-primary" disabled={!file || uploading} onClick={upload}>
               {uploading ? 'Uploading…' : 'Import File →'}
             </button>

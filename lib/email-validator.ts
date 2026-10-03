@@ -1,4 +1,155 @@
-export function isValidEmail(e: string) {
+import dns from 'dns/promises';
+
+/**
+ * Universal email validator with MX record check.
+ * Accepts: Gmail, Outlook, Yahoo, custom domains — anything with a real mail server.
+ * Rejects: Invalid syntax, disposable, no-MX (fake) domains.
+ */
+
+// ---------- Level 1: Syntax ----------
+export function isValidEmailSyntax(e: string): boolean {
   if (!e) return false;
-  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e.trim());
+  const clean = e.trim().toLowerCase();
+  // RFC-ish regex — catches 99% of typos
+  return /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(clean);
+}
+
+// ---------- Level 2: Disposable domain block ----------
+const DISPOSABLE_DOMAINS = new Set([
+  'tempmail.com', 'guerrillamail.com', 'mailinator.com', '10minutemail.com',
+  'throwaway.email', 'trashmail.com', 'yopmail.com', 'sharklasers.com',
+  'temp-mail.org', 'getnada.com', 'fakeinbox.com', 'maildrop.cc',
+  'dispostable.com', 'mailnesia.com', 'spamgourmet.com', 'mytemp.email',
+  'tempr.email', 'tempmail.net', 'throwawaymail.com', 'mintemail.com',
+  'mailtemp.info', 'guerrillamail.info', 'guerrillamail.biz', 'grr.la',
+  'spam4.me', 'trbvm.com', 'vomoto.com', 'yopmail.fr', 'yopmail.net',
+]);
+
+export function isDisposableEmail(email: string): boolean {
+  const domain = email.toLowerCase().split('@')[1] || '';
+  return DISPOSABLE_DOMAINS.has(domain);
+}
+
+// ---------- Level 3: MX record lookup (cached) ----------
+type MxCacheEntry = { hasMx: boolean; records: string[]; expiresAt: number };
+const mxCache = new Map<string, MxCacheEntry>();
+const MX_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
+export async function domainHasMx(domain: string): Promise<{ hasMx: boolean; records: string[] }> {
+  const clean = domain.toLowerCase().trim();
+
+  // Cache hit
+  const cached = mxCache.get(clean);
+  if (cached && cached.expiresAt > Date.now()) {
+    return { hasMx: cached.hasMx, records: cached.records };
+  }
+
+  try {
+    // 4-second timeout
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('DNS timeout')), 4000)
+    );
+
+    const records = await Promise.race([
+      dns.resolveMx(clean),
+      timeout,
+    ]) as dns.MxRecord[];
+
+    const hasMx = Array.isArray(records) && records.length > 0;
+    const hosts = records
+      .sort((a, b) => a.priority - b.priority)
+      .map((r) => r.exchange)
+      .filter(Boolean);
+
+    mxCache.set(clean, { hasMx, records: hosts, expiresAt: Date.now() + MX_CACHE_TTL });
+    return { hasMx, records: hosts };
+  } catch {
+    // NXDOMAIN, no MX, timeout → reject
+    mxCache.set(clean, { hasMx: false, records: [], expiresAt: Date.now() + MX_CACHE_TTL });
+    return { hasMx: false, records: [] };
+  }
+}
+
+// ---------- Full validation ----------
+export type ValidationReason = 'OK' | 'INVALID_SYNTAX' | 'DISPOSABLE' | 'NO_MX';
+
+export type FullValidation = {
+  valid: boolean;
+  reason: ValidationReason;
+  domain: string;
+  mxRecords?: string[];
+};
+
+export async function validateEmailFull(email: string): Promise<FullValidation> {
+  const clean = email.trim().toLowerCase();
+
+  if (!isValidEmailSyntax(clean)) {
+    return { valid: false, reason: 'INVALID_SYNTAX', domain: '' };
+  }
+
+  const domain = clean.split('@')[1] || '';
+
+  if (isDisposableEmail(clean)) {
+    return { valid: false, reason: 'DISPOSABLE', domain };
+  }
+
+  const { hasMx, records } = await domainHasMx(domain);
+  if (!hasMx) {
+    return { valid: false, reason: 'NO_MX', domain };
+  }
+
+  return { valid: true, reason: 'OK', domain, mxRecords: records };
+}
+
+// ---------- Batch validation with concurrency ----------
+export async function validateBatch(
+  emails: string[],
+  concurrency = 30,
+): Promise<Map<string, FullValidation>> {
+  const results = new Map<string, FullValidation>();
+  const queue = [...emails];
+  let active = 0;
+
+  return new Promise((resolve) => {
+    const next = () => {
+      if (queue.length === 0 && active === 0) return resolve(results);
+      while (active < concurrency && queue.length > 0) {
+        const email = queue.shift()!;
+        active++;
+        validateEmailFull(email)
+          .then((r) => results.set(email, r))
+          .catch(() => results.set(email, { valid: false, reason: 'NO_MX', domain: '' }))
+          .finally(() => { active--; next(); });
+      }
+    };
+    next();
+  });
+}
+
+// ---------- Batch domain-only validation (faster — deduped domains) ----------
+export async function validateDomains(domains: string[], concurrency = 20): Promise<Map<string, boolean>> {
+  const results = new Map<string, boolean>();
+  const unique = Array.from(new Set(domains.map((d) => d.toLowerCase().trim())));
+  const queue = [...unique];
+  let active = 0;
+
+  return new Promise((resolve) => {
+    const next = () => {
+      if (queue.length === 0 && active === 0) return resolve(results);
+      while (active < concurrency && queue.length > 0) {
+        const domain = queue.shift()!;
+        active++;
+        domainHasMx(domain)
+          .then((r) => results.set(domain, r.hasMx))
+          .catch(() => results.set(domain, false))
+          .finally(() => { active--; next(); });
+      }
+    };
+    next();
+  });
+}
+
+// ---------- Backwards compat ----------
+export function isValidEmail(e: string): boolean {
+  return isValidEmailSyntax(e);
 }
