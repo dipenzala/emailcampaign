@@ -8,6 +8,16 @@ import { renderTemplate } from '../lib/personalization';
 import { pickNextSenderStrict, markSenderUsed } from '../lib/sender-rotation';
 import { handleBounce } from '../lib/bounce-handler';
 
+// Inject tracking pixel into HTML
+function injectTrackingPixel(html: string, recipientId: string, appUrl: string): string {
+  const pixelUrl = `${appUrl}/api/track/open/${recipientId}`;
+  const pixel = `<img src="${pixelUrl}" width="1" height="1" style="display:none" alt="" />`;
+  if (/<\/body>/i.test(html)) {
+    return html.replace(/<\/body>/i, `${pixel}</body>`);
+  }
+  return html + pixel;
+}
+
 const POLL_INTERVAL = 3000;
 const BATCH_SIZE = 5;
 
@@ -79,13 +89,14 @@ async function processOne(recipient: any) {
   console.log(`📤 [Sender: ${sender.email}] batch=${sender.batchCount}/${campaign.batchLimit ?? 10} sent=${sender.sentToday}/${sender.dailyLimit}`);
 
   const unsubUrl = `${process.env.APP_URL}/api/unsubscribe/${Buffer.from(recipient.contact.email).toString('base64url')}`;
-  const personalizedHtml = renderTemplate(campaign.html, {
+  let personalizedHtml = renderTemplate(campaign.html, {
     name: recipient.contact.name ?? '',
     email: recipient.contact.email,
     company: recipient.contact.company ?? '',
     city: recipient.contact.city ?? '',
     phone: recipient.contact.phone ?? '',
   });
+  personalizedHtml = injectTrackingPixel(personalizedHtml, recipient.id, process.env.APP_URL || );
   const text = htmlToText(personalizedHtml);
 
   try {

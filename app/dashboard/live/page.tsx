@@ -5,7 +5,7 @@ import Link from 'next/link';
 type DetailsType = 'campaigns' | 'sent' | 'pending' | 'queued' | 'processing' | 'failed' | 'delivered' | 'bounced' | 'suppressed';
 
 export default function LiveDashboard() {
-  const [stats, setStats] = useState<any>({ total: 0, sent: 0, delivered: 0, failed: 0, bounced: 0, suppressed: 0, pending: 0, queued: 0, processing: 0 });
+  const [stats, setStats] = useState<any>({ total: 0, sent: 0, delivered: 0, failed: 0, bounced: 0, suppressed: 0, pending: 0, queued: 0, processing: 0, opened: 0 });
   const [senders, setSenders] = useState<any[]>([]);
   const [activity, setActivity] = useState<string[]>([]);
   const [campaign, setCampaign] = useState<any>(null);
@@ -77,12 +77,13 @@ export default function LiveDashboard() {
         <KPI label="FAILED" value={stats.failed} color="text-red-400" big onClick={() => openModal('failed')} hint="View failed" />
       </div>
 
-      <div className="grid grid-cols-3 md:grid-cols-5 gap-2 mb-6">
+      <div className="grid grid-cols-3 md:grid-cols-6 gap-2 mb-6">
         <KPI label="QUEUED" value={stats.queued} color="text-yellow-400" onClick={() => openModal('queued')} />
         <KPI label="PROCESSING" value={stats.processing} color="text-purple-400" onClick={() => openModal('processing')} />
         <KPI label="DELIVERED" value={stats.delivered} color="text-emerald-400" onClick={() => openModal('delivered')} />
         <KPI label="BOUNCED" value={stats.bounced} color="text-orange-400" onClick={() => openModal('bounced')} />
         <KPI label="SUPPRESSED" value={stats.suppressed} color="text-slate-400" onClick={() => openModal('suppressed')} />
+        <KPI label="OPENED" value={stats.opened || 0} color="text-pink-400" onClick={() => openModal('opened')} />
       </div>
 
       {/* Progress */}
@@ -200,6 +201,7 @@ const MODAL_TITLES: Record<DetailsType, string> = {
   delivered: '📬 Delivered Recipients',
   bounced: '↩️ Bounced Recipients',
   suppressed: '🚫 Suppressed Recipients',
+  opened: '👁️ Opened Emails',
 };
 
 function Modal({ type, data, loading, onClose, search, setSearch }: any) {

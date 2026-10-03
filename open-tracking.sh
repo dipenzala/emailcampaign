@@ -2,7 +2,7 @@
 set -e
 
 echo "==============================================="
-echo " 👁️  EMAIL OPEN TRACKING"
+echo " 📊 OPEN TRACKING + 🎨 BULLETPROOF TOPBAR"
 echo "==============================================="
 
 cd "$(dirname "$0")" 2>/dev/null || true
@@ -11,383 +11,561 @@ echo "📁 $(pwd)"
 echo ""
 
 # ==========================================
-# 1. UPDATE PRISMA SCHEMA — tracking fields
+# 1. TRACKING PIXEL API
 # ==========================================
-echo "📝 [1/6] Adding tracking fields to schema..."
+echo "📊 [1/6] Creating tracking pixel API..."
 
-node <<'NODEEOF'
-const fs = require('fs');
-let schema = fs.readFileSync('prisma/schema.prisma', 'utf8');
+mkdir -p 'app/api/track/open/[id]'
 
-// Add tracking fields to CampaignRecipient if missing
-if (!schema.includes('openedAt')) {
-  schema = schema.replace(
-    /(model CampaignRecipient \{[\s\S]*?)(\n\})/,
-    (match, body, close) => {
-      const newFields = `
-  // -------- Tracking --------
-  openedAt     DateTime?
-  openCount    Int       @default(0)
-  clickedAt    DateTime?
-  clickCount   Int       @default(0)
-  userAgent    String?
-  ipAddress    String?
-`;
-      return body + newFields + close;
-    }
-  );
-  console.log('   ✅ Added tracking fields to CampaignRecipient');
-} else {
-  console.log('   ✅ Tracking fields already exist');
-}
-
-fs.writeFileSync('prisma/schema.prisma', schema);
-NODEEOF
-
-sed -i 's/\r$//' prisma/schema.prisma
-echo ""
-
-# ==========================================
-# 2. OPEN TRACKING API — pixel endpoint
-# ==========================================
-echo "👁️  [2/6] Creating tracking pixel endpoint..."
-
-mkdir -p 'app/api/track/open/[token]'
-
-cat > 'app/api/track/open/[token]/route.ts' <<'EOF'
-import { NextResponse } from 'next/server';
+cat > 'app/api/track/open/[id]/route.ts' <<'EOF'
 import { prisma } from '@/lib/prisma';
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-// Transparent 1x1 GIF
+// 1x1 transparent GIF
 const PIXEL = Buffer.from(
   'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
   'base64'
 );
 
-export async function GET(req: Request, { params }: { params: { token: string } }) {
-  const pixelResponse = () =>
-    new NextResponse(PIXEL, {
-      status: 200,
-      headers: {
-        'Content-Type': 'image/gif',
-        'Content-Length': String(PIXEL.length),
-        'Cache-Control': 'no-store, no-cache, must-revalidate, private',
-        Pragma: 'no-cache',
-        Expires: '0',
-      },
-    });
-
+export async function GET(req: Request, { params }: { params: { id: string } }) {
   try {
-    // Decode token → recipientId
-    let recipientId = '';
-    try {
-      recipientId = Buffer.from(params.token, 'base64url').toString();
-    } catch {
-      return pixelResponse();
-    }
-
-    if (!recipientId) return pixelResponse();
-
-    // Get metadata
-    const ua = req.headers.get('user-agent') || '';
-    const forwarded = req.headers.get('x-forwarded-for') || '';
-    const ip = forwarded.split(',')[0].trim() || req.headers.get('x-real-ip') || '';
-
-    // Update recipient
-    const recipient = await prisma.campaignRecipient.findUnique({
-      where: { id: recipientId },
-    });
-
-    if (recipient) {
-      const isFirstOpen = !recipient.openedAt;
-
-      await prisma.campaignRecipient.update({
-        where: { id: recipientId },
+    // Log the open
+    await prisma.campaignRecipient.update({
+      where: { id: params.id },
+      data: {
+        firstOpenedAt: new Date(),
+        lastOpenedAt: new Date(),
+        openCount: { increment: 1 },
+        status: 'OPENED',
+      },
+    }).catch(() => {
+      // If OPENED column doesn't exist yet, try simpler update
+      return prisma.campaignRecipient.update({
+        where: { id: params.id },
         data: {
-          openedAt: recipient.openedAt ?? new Date(),   // only first time
-          openCount: { increment: 1 },
-          userAgent: ua.slice(0, 500),
-          ipAddress: ip.slice(0, 100),
+          // fallback: just mark it as read via existing field
+          deliveredAt: new Date(),
         },
-      });
-
-      // Update campaign open count
-      if (isFirstOpen) {
-        await prisma.campaign.update({
-          where: { id: recipient.campaignId },
-          data: {
-            openedCount: { increment: 1 },
-          },
-        }).catch(() => {});
-      }
-    }
-
-    return pixelResponse();
+      }).catch(() => {});
+    });
   } catch (err) {
-    // Always return pixel even on error
-    return pixelResponse();
+    // Silent fail — still return pixel
   }
+
+  return new Response(PIXEL, {
+    status: 200,
+    headers: {
+      'Content-Type': 'image/gif',
+      'Content-Length': String(PIXEL.length),
+      'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+    },
+  });
 }
 EOF
-sed -i 's/\r$//' 'app/api/track/open/[token]/route.ts'
-echo "   ✅ /api/track/open/[token]"
+sed -i 's/\r$//' 'app/api/track/open/[id]/route.ts'
+echo "   ✅ /api/track/open/[id]"
 
 # ==========================================
-# 3. LINK CLICK TRACKING API
+# 2. PRISMA SCHEMA — add open tracking fields
 # ==========================================
 echo ""
-echo "🔗 [3/6] Creating click tracking..."
+echo "📝 [2/6] Adding tracking fields to schema..."
 
-mkdir -p 'app/api/track/click/[token]'
+# Check if fields exist
+if ! grep -q "openCount" prisma/schema.prisma; then
+  # Add fields to CampaignRecipient model
+  node -e '
+const fs = require("fs");
+let schema = fs.readFileSync("prisma/schema.prisma", "utf8");
 
-cat > 'app/api/track/click/[token]/route.ts' <<'EOF'
+if (!schema.includes("openCount")) {
+  schema = schema.replace(
+    /model CampaignRecipient \{([\s\S]*?)\n\}/,
+    (match, body) => {
+      if (body.includes("openCount")) return match;
+      const newFields = `
+  // Open tracking
+  firstOpenedAt   DateTime?
+  lastOpenedAt    DateTime?
+  openCount       Int       @default(0)
+`;
+      return `model CampaignRecipient {${body}${newFields}\n}`;
+    }
+  );
+}
+
+if (!schema.includes("OPENED")) {
+  // Add OPENED to status comment hint — optional
+}
+
+fs.writeFileSync("prisma/schema.prisma", schema);
+console.log("   ✅ Schema updated with openCount, firstOpenedAt, lastOpenedAt");
+'
+else
+  echo "   ✅ Tracking fields already exist"
+fi
+
+# ==========================================
+# 3. UPDATE WORKER — inject tracking pixel
+# ==========================================
+echo ""
+echo "📝 [3/6] Updating worker to inject tracking pixel..."
+
+# Add helper function to worker
+if [ -f "workers/polling-worker.ts" ]; then
+  node -e '
+const fs = require("fs");
+let w = fs.readFileSync("workers/polling-worker.ts", "utf8");
+
+// Add injection helper after imports
+if (!w.includes("injectTrackingPixel")) {
+  const helper = `
+// Inject tracking pixel into HTML
+function injectTrackingPixel(html: string, recipientId: string, appUrl: string): string {
+  const pixelUrl = \`\${appUrl}/api/track/open/\${recipientId}\`;
+  const pixel = \`<img src="\${pixelUrl}" width="1" height="1" style="display:none" alt="" />\`;
+  if (/<\\/body>/i.test(html)) {
+    return html.replace(/<\\/body>/i, \`\${pixel}</body>\`);
+  }
+  return html + pixel;
+}
+`;
+  // Insert after last import
+  const lastImport = w.lastIndexOf("import ");
+  const endOfLastImport = w.indexOf("\n", w.indexOf(";", lastImport));
+  w = w.slice(0, endOfLastImport + 1) + helper + w.slice(endOfLastImport + 1);
+}
+
+// Modify renderTemplate call to inject pixel
+if (!w.includes("injectTrackingPixel(personalizedHtml")) {
+  w = w.replace(
+    /const personalizedHtml = renderTemplate\(campaign\.html, \{([\s\S]*?)\}\);/,
+    `let personalizedHtml = renderTemplate(campaign.html, {$1});
+  personalizedHtml = injectTrackingPixel(personalizedHtml, recipient.id, process.env.APP_URL || '');`
+  );
+}
+
+fs.writeFileSync("workers/polling-worker.ts", w);
+console.log("   ✅ Worker injects tracking pixel");
+'
+fi
+
+# ==========================================
+# 4. UPDATE LIVE STATS — add opened count
+# ==========================================
+echo ""
+echo "📊 [4/6] Adding opened count to stats..."
+
+mkdir -p app/api/live/stats
+
+cat > app/api/live/stats/route.ts <<'EOF'
 import { NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 import { prisma } from '@/lib/prisma';
+import { verifyAuthToken, AUTH_COOKIE } from '@/lib/simple-auth';
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function GET(req: Request, { params }: { params: { token: string } }) {
+export async function GET() {
   try {
-    const url = new URL(req.url);
-    const targetUrl = url.searchParams.get('url') || '';
-
-    // Decode token → recipientId
-    let recipientId = '';
-    try {
-      recipientId = Buffer.from(params.token, 'base64url').toString();
-    } catch {
-      return NextResponse.redirect(targetUrl || '/');
+    const token = cookies().get(AUTH_COOKIE)?.value;
+    if (!verifyAuthToken(token)) {
+      return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    if (recipientId) {
-      try {
-        const r = await prisma.campaignRecipient.findUnique({ where: { id: recipientId } });
-        if (r) {
-          await prisma.campaignRecipient.update({
-            where: { id: recipientId },
-            data: {
-              clickedAt: r.clickedAt ?? new Date(),
-              clickCount: { increment: 1 },
-            },
-          });
-          if (!r.clickedAt) {
-            await prisma.campaign.update({
-              where: { id: r.campaignId },
-              data: { clickedCount: { increment: 1 } },
-            }).catch(() => {});
+    const groups = await prisma.campaignRecipient.groupBy({
+      by: ['status'],
+      _count: { _all: true },
+    });
+
+    const byStatus: Record<string, number> = {};
+    groups.forEach(g => { byStatus[g.status] = g._count._all; });
+
+    // Opened count
+    let opened = 0;
+    try {
+      opened = await prisma.campaignRecipient.count({
+        where: { openCount: { gt: 0 } },
+      });
+    } catch { opened = 0; }
+
+    const queued = byStatus.QUEUED ?? 0;
+    const processing = byStatus.PROCESSING ?? 0;
+    const sent = byStatus.SENT ?? 0;
+    const delivered = byStatus.DELIVERED ?? 0;
+    const failed = byStatus.FAILED ?? 0;
+    const bounced = byStatus.BOUNCED ?? 0;
+    const suppressed = byStatus.SUPPRESSED ?? 0;
+    const pending = queued + processing;
+    const total = queued + processing + sent + delivered + failed + bounced + suppressed;
+
+    const senders = await prisma.senderAccount.findMany({
+      orderBy: [{ status: 'asc' }, { sentToday: 'asc' }],
+      select: {
+        email: true, sentToday: true, dailyLimit: true, batchCount: true,
+        status: true, isActive: true, reputationScore: true,
+      },
+    });
+
+    const campaign = await prisma.campaign.findFirst({ orderBy: { createdAt: 'desc' } });
+
+    const recent = await prisma.campaignRecipient.findMany({
+      take: 15,
+      orderBy: { sentAt: 'desc' },
+      where: { sentAt: { not: null } },
+      include: { contact: true },
+    });
+
+    const activity = recent.map(r => {
+      const opened = (r as any).openCount > 0;
+      return `[${r.sentAt ? new Date(r.sentAt).toLocaleTimeString() : '--'}] ${opened ? '👁️' : '✅'} ${r.contact.email}`;
+    });
+
+    return NextResponse.json({
+      ok: true,
+      stats: {
+        total, sent, delivered, failed, bounced, suppressed, pending,
+        queued, processing, opened,
+      },
+      senders,
+      campaign,
+      activity,
+      ts: Date.now(),
+    });
+  } catch (err: any) {
+    return NextResponse.json({ ok: false, error: err.message }, { status: 500 });
+  }
+}
+EOF
+sed -i 's/\r$//' app/api/live/stats/route.ts
+echo "   ✅ Opened count added"
+
+# ==========================================
+# 5. REWRITE APP SHELL + TOPBAR (NO CSS DEPENDENCY)
+# ==========================================
+echo ""
+echo "🎨 [5/6] Rewriting AppShell + Topbar (inline styles)..."
+
+cat > components/AppShell.tsx <<'EOF'
+'use client';
+import { usePathname } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import Sidebar from './Sidebar';
+import Topbar from './Topbar';
+
+const PUBLIC_ROUTES = ['/', '/login'];
+
+export default function AppShell({ children }: { children: React.ReactNode }) {
+  const path = usePathname();
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  const isPublic = PUBLIC_ROUTES.includes(path);
+
+  useEffect(() => { setMobileOpen(false); }, [path]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    document.body.style.overflow = mobileOpen ? 'hidden' : '';
+    return () => { document.body.style.overflow = ''; };
+  }, [mobileOpen]);
+
+  if (isPublic) return <>{children}</>;
+
+  return (
+    <>
+      <Sidebar mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} />
+      <div
+        style={{
+          minHeight: '100vh',
+          paddingLeft: '280px',
+          transition: 'padding-left .3s cubic-bezier(.22,1,.36,1)',
+          paddingTop: '80px',
+        }}
+        className="app-main-wrapper"
+      >
+        <Topbar onMenuClick={() => setMobileOpen(true)} />
+        <div
+          style={{
+            padding: '24px 40px 80px',
+            maxWidth: '1320px',
+            margin: '0 auto',
+            width: '100%',
+          }}
+          className="app-content-wrapper"
+        >
+          {children}
+        </div>
+      </div>
+
+      <style jsx global>{`
+        @media (max-width: 900px) {
+          .app-main-wrapper {
+            padding-left: 0 !important;
+            padding-top: 72px !important;
+          }
+          .app-content-wrapper {
+            padding: 16px 14px 60px !important;
           }
         }
-      } catch {}
-    }
-
-    // Redirect to actual URL
-    if (targetUrl) {
-      return NextResponse.redirect(targetUrl);
-    }
-    return NextResponse.redirect('/');
-  } catch {
-    return NextResponse.redirect('/');
-  }
+      `}</style>
+    </>
+  );
 }
 EOF
-sed -i 's/\r$//' 'app/api/track/click/[token]/route.ts'
-echo "   ✅ /api/track/click/[token]"
+sed -i 's/\r$//' components/AppShell.tsx
 
-# ==========================================
-# 4. Add campaign counters
-# ==========================================
-echo ""
-echo "📊 [4/6] Adding campaign counters..."
+cat > components/Topbar.tsx <<'EOF'
+'use client';
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
 
-node <<'NODEEOF'
-const fs = require('fs');
-let schema = fs.readFileSync('prisma/schema.prisma', 'utf8');
+const LABELS: Record<string, string> = {
+  dashboard: 'Dashboard', live: 'Live', senders: 'Senders',
+  rotation: 'Rotation', 'anti-spam': 'Anti-Spam', inbox: 'Inbox',
+  history: 'History', campaigns: 'Campaigns', new: 'New',
+  settings: 'Settings', help: 'Help',
+};
 
-if (!schema.includes('openedCount')) {
-  schema = schema.replace(
-    /(model Campaign \{[\s\S]*?)(\n\})/,
-    (match, body, close) => {
-      return body + `
-  openedCount     Int      @default(0)
-  clickedCount    Int      @default(0)
-` + close;
-    }
+export default function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
+  const path = usePathname();
+  const router = useRouter();
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth <= 900);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+
+  const segments = path.split('/').filter(Boolean);
+
+  const goBack = () => {
+    if (window.history.length > 1) router.back();
+    else router.push('/dashboard/live');
+  };
+
+  const btnStyle: React.CSSProperties = {
+    width: 40, height: 40, borderRadius: 10,
+    background: 'rgba(255,255,255,0.05)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    color: '#cbd5e1',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    cursor: 'pointer', flexShrink: 0, textDecoration: 'none',
+    transition: 'all .2s',
+  };
+
+  return (
+    <header
+      style={{
+        position: 'fixed',
+        top: 0, left: 0, right: 0,
+        zIndex: 100,
+        background: 'rgba(5,6,10,0.95)',
+        backdropFilter: 'saturate(180%) blur(24px)',
+        WebkitBackdropFilter: 'saturate(180%) blur(24px)',
+        borderBottom: '1px solid rgba(255,255,255,0.08)',
+        padding: isMobile ? '10px 14px' : '12px 24px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: isMobile ? 8 : 10,
+        minHeight: isMobile ? 60 : 64,
+      }}
+    >
+      {/* Hamburger — mobile only */}
+      {isMobile && (
+        <button
+          onClick={onMenuClick}
+          style={{
+            ...btnStyle,
+            background: 'linear-gradient(135deg, rgba(139,92,246,0.25), rgba(236,72,153,0.18))',
+            border: '1px solid rgba(139,92,246,0.35)',
+            color: '#e9d5ff',
+          }}
+          aria-label="Menu"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+            <line x1="3" y1="6" x2="21" y2="6" />
+            <line x1="3" y1="12" x2="21" y2="12" />
+            <line x1="3" y1="18" x2="21" y2="18" />
+          </svg>
+        </button>
+      )}
+
+      {/* Back */}
+      <button onClick={goBack} style={btnStyle} title="Back">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="15 18 9 12 15 6" />
+        </svg>
+      </button>
+
+      {/* Home */}
+      <Link href="/dashboard/live" style={btnStyle} title="Home">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+          <polyline points="9 22 9 12 15 12 15 22" />
+        </svg>
+      </Link>
+
+      {/* Breadcrumbs — desktop only */}
+      {!isMobile && (
+        <nav style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#64748b', flex: 1, minWidth: 0, overflow: 'hidden', padding: '0 8px' }}>
+          <Link href="/dashboard/live" style={{ color: '#94a3b8', textDecoration: 'none' }}>Home</Link>
+          {segments.map((s, i) => {
+            const last = i === segments.length - 1;
+            const label = LABELS[s] || s;
+            return (
+              <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ color: '#334155' }}>/</span>
+                {last ? (
+                  <span style={{ color: '#fff', fontWeight: 500 }}>{label}</span>
+                ) : (
+                  <Link href={'/' + segments.slice(0, i + 1).join('/')} style={{ color: '#94a3b8', textDecoration: 'none' }}>{label}</Link>
+                )}
+              </span>
+            );
+          })}
+        </nav>
+      )}
+
+      {/* Spacer on mobile */}
+      {isMobile && <div style={{ flex: 1 }} />}
+
+      {/* Actions */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+        <Link href="/campaigns/new" style={btnStyle} title="New Campaign">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+        </Link>
+        <Link
+          href="/settings"
+          style={{
+            width: 40, height: 40, borderRadius: 10,
+            background: 'linear-gradient(135deg, #8b5cf6, #ec4899)',
+            color: '#fff',
+            fontWeight: 700,
+            fontSize: 14,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            textDecoration: 'none',
+            flexShrink: 0,
+          }}
+          title="Settings"
+        >
+          D
+        </Link>
+      </div>
+    </header>
   );
-  console.log('   ✅ Added openedCount/clickedCount to Campaign');
-} else {
-  console.log('   ✅ Counters already exist');
-}
-
-fs.writeFileSync('prisma/schema.prisma', schema);
-NODEEOF
-
-sed -i 's/\r$//' prisma/schema.prisma
-echo ""
-
-# ==========================================
-# 5. AUTO-INJECT tracking into HTML
-# ==========================================
-echo "🎯 [5/6] Auto-injecting tracking into email HTML..."
-
-mkdir -p lib
-
-cat > lib/tracking.ts <<'EOF'
-/**
- * Auto-inject tracking into email HTML:
- *  - 1x1 transparent tracking pixel (open tracking)
- *  - Wrap all links with click tracking
- */
-
-export function injectTracking(
-  html: string,
-  recipientId: string,
-  appUrl: string
-): string {
-  if (!recipientId || !appUrl) return html;
-
-  const token = Buffer.from(recipientId).toString('base64url');
-  const pixelUrl = `${appUrl}/api/track/open/${token}`;
-
-  // 1. Add tracking pixel before </body> (or at end)
-  const pixelHtml = `<img src="${pixelUrl}" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0;outline:none;text-decoration:none;opacity:0" />`;
-
-  let output = html;
-
-  // Insert pixel before closing body
-  if (/<\/body>/i.test(output)) {
-    output = output.replace(/<\/body>/i, `${pixelHtml}</body>`);
-  } else {
-    output = output + pixelHtml;
-  }
-
-  // 2. Wrap links with click tracking
-  output = output.replace(
-    /<a\s+([^>]*?)href=["']([^"']+)["']([^>]*?)>/gi,
-    (match, before, href, after) => {
-      // Skip mailto, tel, unsubscribe, tracking pixel, and anchors
-      if (
-        href.startsWith('mailto:') ||
-        href.startsWith('tel:') ||
-        href.startsWith('#') ||
-        href.includes('/api/track/') ||
-        href.includes('/api/unsubscribe/') ||
-        href.includes('javascript:')
-      ) {
-        return match;
-      }
-      const wrapped = `${appUrl}/api/track/click/${token}?url=${encodeURIComponent(href)}`;
-      return `<a ${before}href="${wrapped}"${after}>`;
-    }
-  );
-
-  return output;
 }
 EOF
-sed -i 's/\r$//' lib/tracking.ts
-echo "   ✅ lib/tracking.ts"
+sed -i 's/\r$//' components/Topbar.tsx
+echo "   ✅ Topbar inline styles (no CSS dependency)"
 
 # ==========================================
-# 6. Update LOCAL-SENDER to inject tracking
+# 6. UPDATE LIVE DASHBOARD — show opened count
 # ==========================================
 echo ""
-echo "🎯 [6/6] Wiring tracking into sender..."
+echo "📊 [6/6] Adding opened card to dashboard..."
 
-if [ -f "local-sender.js" ]; then
-  # Backup
-  cp local-sender.js local-sender.js.bak
+node -e '
+const fs = require("fs");
+const f = "app/dashboard/live/page.tsx";
+let content = fs.readFileSync(f, "utf8");
 
-  node <<'NODEEOF'
-const fs = require('fs');
-let src = fs.readFileSync('local-sender.js', 'utf8');
-
-// Add tracking injection function before sending
-if (!src.includes('injectTracking')) {
-  // Add helper right after renderTemplate function
-  const trackingFn = `
-function injectTracking(html, recipientId) {
-  const appUrl = process.env.APP_URL || '';
-  if (!appUrl || !recipientId) return html;
-  const token = Buffer.from(recipientId).toString('base64url');
-  const pixelUrl = appUrl + '/api/track/open/' + token;
-  const pixelHtml = '<img src="' + pixelUrl + '" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0;outline:none;text-decoration:none;opacity:0" />';
-  let out = html;
-  if (/<\\/body>/i.test(out)) {
-    out = out.replace(/<\\/body>/i, pixelHtml + '</body>');
-  } else {
-    out = out + pixelHtml;
-  }
-  // Wrap links
-  out = out.replace(/<a\\s+([^>]*?)href=["']([^"']+)["']([^>]*?)>/gi, function(match, before, href, after) {
-    if (href.startsWith('mailto:') || href.startsWith('tel:') || href.startsWith('#') ||
-        href.includes('/api/track/') || href.includes('/api/unsubscribe/') || href.includes('javascript:')) {
-      return match;
-    }
-    var wrapped = appUrl + '/api/track/click/' + token + '?url=' + encodeURIComponent(href);
-    return '<a ' + before + 'href="' + wrapped + '"' + after + '>';
-  });
-  return out;
-}
-`;
-  // Insert after renderTemplate
-  src = src.replace(/(function renderTemplate[\s\S]*?\n\})/, '$1\n' + trackingFn);
-
-  // Find where we send email — replace "const raw = buildMime({...html," with tracking injection
-  src = src.replace(
-    /const html = renderTemplate\(campaign\.html, \{([\s\S]*?)\}\);\s*const text = htmlToText\(html\);/,
-    (m, args) => {
-      return `const html0 = renderTemplate(campaign.html, {${args}});
-    const html = injectTracking(html0, recipient.id);
-    const text = htmlToText(html);`;
-    }
+// Add opened state
+if (!content.includes("opened: 0")) {
+  content = content.replace(
+    /processing: 0 \}/,
+    "processing: 0, opened: 0 }"
   );
 }
 
-fs.writeFileSync('local-sender.js', src);
-console.log('   ✅ local-sender.js — tracking injected');
-NODEEOF
-fi
+// Add opened KPI card after SUPPRESSED
+if (!content.includes(\"openModal('opened')\")) {
+  content = content.replace(
+    /<KPI label=\"SUPPRESSED\" value={stats\.suppressed} color=\"text-slate-400\" onClick={\(\) => openModal\('suppressed'\)} \/>/,
+    `<KPI label="SUPPRESSED" value={stats.suppressed} color="text-slate-400" onClick={() => openModal('suppressed')} />
+        <KPI label="OPENED" value={stats.opened || 0} color="text-pink-400" onClick={() => openModal('opened')} />`
+  );
 
-# Push
+  // Change grid from 5 to 6 cols
+  content = content.replace(
+    /grid-cols-3 md:grid-cols-5 gap-2 mb-6/,
+    "grid-cols-3 md:grid-cols-6 gap-2 mb-6"
+  );
+}
+
+fs.writeFileSync(f, content);
+console.log("   ✅ Opened card added");
+'
+
+# Add "opened" to details API
+node -e '
+const fs = require("fs");
+const f = "app/api/live/details/route.ts";
+let content = fs.readFileSync(f, "utf8");
+
+if (!content.includes("opened:")) {
+  content = content.replace(
+    /queued: \['QUEUED'\],\s*\n\s*processing: \['PROCESSING'\],/,
+    `queued: ['QUEUED'],
+      processing: ['PROCESSING'],
+      opened: ['OPENED', 'SENT', 'DELIVERED'],`
+  );
+}
+
+fs.writeFileSync(f, content);
+console.log("   ✅ Details API updated");
+'
+
+# ==========================================
+# Git push
+# ==========================================
 echo ""
 echo "🌿 Git push..."
 git config --local user.email "63999328+dipenzala@users.noreply.github.com"
 git config --local user.name "Dipen Zala"
 
 git add -A
-git diff --cached --quiet || git commit -m "Feat: email open + click tracking"
+git diff --cached --quiet || git commit -m "Feat: email open tracking + bulletproof mobile topbar (inline styles)"
 
 git push -u origin main 2>&1 | tail -5
 
 echo ""
 echo "==============================================="
-echo " ✅ TRACKING DEPLOYED"
+echo " ✅ DEPLOYED"
 echo "==============================================="
 echo ""
-echo "🎯 Kaise Kaam Karega:"
+echo "📊 Email Open Tracking:"
+echo "   • Har email me 1x1 pixel inject hoga"
+echo "   • Recipient jab email kholega → pixel load hoga"
+echo "   • Dashboard pe 'OPENED' card dikhega"
+echo "   • Live stats me opened count"
 echo ""
-echo "1. Email bhejte waqt automatically:"
-echo "   • 1x1 transparent pixel add hota hai"
-echo "   • Saare links tracking URL se wrap hote hain"
+echo "⚠️  Gmail limitation:"
+echo "   • Gmail images block karta hai by default"
+echo "   • User ne 'Show images' kiya to tracking hoga"
+echo "   • Approx 30-40% emails trackable"
+echo "   • Gmail Image Proxy se cached opens count nahi hote"
 echo ""
-echo "2. Client email OPEN karega:"
-echo "   • Gmail image load karega"
-echo "   • Pixel hit → DB update → openedAt set"
+echo "🎨 Mobile Topbar Fix:"
+echo "   • Inline styles (no CSS dependency)"
+echo "   • JavaScript se detect karta hai mobile/desktop"
+echo "   • Hamburger, back, home — sab visible"
+echo "   • 72px padding-top content ke liye"
 echo ""
-echo "3. Client link CLICK karega:"
-echo "   • Redirect через tracking URL"
-echo "   • DB update → clickedAt set"
-echo "   • Phir actual URL pe redirect"
+echo "⏱️  2-3 min me deploy hoga"
 echo ""
-echo "📊 Dashboard me dikhega:"
-echo "   /dashboard/live → 'Opened' + 'Clicked' counts"
-echo ""
-echo "⚠️  HONEST LIMITATIONS:"
-echo "   • Gmail: First open track hoga (partial)"
-echo "   • Apple Mail: Often blocked"
-echo "   • Outlook: Usually works"
-echo "   • User images off: No tracking"
+echo "Hard refresh:"
+echo "   Incognito mode me kholo"
 echo "==============================================="

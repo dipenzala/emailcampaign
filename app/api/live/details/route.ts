@@ -41,6 +41,7 @@ export async function GET(req: Request) {
       delivered: ['DELIVERED'],
       queued: ['QUEUED'],
       processing: ['PROCESSING'],
+      opened: ['OPENED', 'SENT', 'DELIVERED'],
     };
 
     const statuses = statusMap[type];

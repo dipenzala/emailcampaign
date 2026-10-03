@@ -21,6 +21,14 @@ export async function GET() {
     const byStatus: Record<string, number> = {};
     groups.forEach(g => { byStatus[g.status] = g._count._all; });
 
+    // Opened count
+    let opened = 0;
+    try {
+      opened = await prisma.campaignRecipient.count({
+        where: { openCount: { gt: 0 } },
+      });
+    } catch { opened = 0; }
+
     const queued = byStatus.QUEUED ?? 0;
     const processing = byStatus.PROCESSING ?? 0;
     const sent = byStatus.SENT ?? 0;
@@ -48,13 +56,17 @@ export async function GET() {
       include: { contact: true },
     });
 
-    const activity = recent.map(r =>
-      `[${r.sentAt ? new Date(r.sentAt).toLocaleTimeString() : '--'}] ✅ ${r.contact.email}`
-    );
+    const activity = recent.map(r => {
+      const opened = (r as any).openCount > 0;
+      return `[${r.sentAt ? new Date(r.sentAt).toLocaleTimeString() : '--'}] ${opened ? '👁️' : '✅'} ${r.contact.email}`;
+    });
 
     return NextResponse.json({
       ok: true,
-      stats: { total, sent, delivered, failed, bounced, suppressed, pending, queued, processing },
+      stats: {
+        total, sent, delivered, failed, bounced, suppressed, pending,
+        queued, processing, opened,
+      },
       senders,
       campaign,
       activity,
