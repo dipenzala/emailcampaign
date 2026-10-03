@@ -138,3 +138,20 @@ model EmailTemplate {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+model Session {
+  id           String   @id @default(cuid())
+  userId       String
+  deviceId     String
+  deviceName   String   @default("Unknown Device")
+  ip           String?
+  userAgent    String?
+  tokenHash    String   @unique
+  createdAt    DateTime @default(now())
+  lastSeenAt   DateTime @default(now())
+  expiresAt    DateTime
+  revokedAt    DateTime?
+
+  @@index([userId])
+  @@index([deviceId])
+}

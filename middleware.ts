@@ -1,13 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-/**
- * Validates session cookie signature using Web Crypto (edge-compatible).
- * Rejects:
- *   - Missing cookie
- *   - Tampered signature
- *   - Expired session (30 days)
- */
 async function verifySessionEdge(token: string, secret: string): Promise<boolean> {
   try {
     if (!token || !secret) return false;
@@ -15,7 +8,6 @@ async function verifySessionEdge(token: string, secret: string): Promise<boolean
     if (parts.length !== 2) return false;
     const [data, sig] = parts;
 
-    // Decode base64url signature
     const pad = (s: string) => s + '='.repeat((4 - (s.length % 4)) % 4);
     const b64urlToBytes = (s: string) => {
       const b64 = pad(s.replace(/-/g, '+').replace(/_/g, '/'));
@@ -36,11 +28,9 @@ async function verifySessionEdge(token: string, secret: string): Promise<boolean
 
     const sigBytes = b64urlToBytes(sig);
     const dataBytes = enc.encode(data);
-
     const valid = await crypto.subtle.verify('HMAC', key, sigBytes, dataBytes);
     if (!valid) return false;
 
-    // Decode payload + check expiry
     const payloadJson = new TextDecoder().decode(b64urlToBytes(data));
     const payload = JSON.parse(payloadJson);
     if (!payload.ts || Date.now() - payload.ts > 30 * 24 * 60 * 60 * 1000) {
@@ -64,7 +54,6 @@ export async function middleware(req: NextRequest) {
     url.pathname = '/login';
     url.searchParams.set('next', req.nextUrl.pathname);
     const res = NextResponse.redirect(url);
-    // Clear any bad cookie
     res.cookies.set('ec_session', '', { path: '/', maxAge: 0 });
     return res;
   }
@@ -80,12 +69,6 @@ export const config = {
     '/campaigns/:path*',
     '/anti-spam/:path*',
     '/team/:path*',
-    '/api/campaigns/:path*',
-    '/api/senders/:path*',
-    '/api/team/:path*',
-    '/api/contacts/:path*',
-    '/api/test-email/:path*',
-    '/api/preview/:path*',
-    '/api/templates/:path*',
+    '/account/:path*',
   ],
 };

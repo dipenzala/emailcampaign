@@ -3,6 +3,19 @@ import { useState, Suspense, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
+function getOrCreateDeviceId(): string {
+  if (typeof window === 'undefined') return '';
+  const KEY = 'ec_device_id';
+  let id = localStorage.getItem(KEY);
+  if (!id || id.length < 16) {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    id = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    localStorage.setItem(KEY, id);
+  }
+  return id;
+}
+
 function LoginInner() {
   const router = useRouter();
   const params = useSearchParams();
@@ -32,7 +45,7 @@ function LoginInner() {
       const r = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, deviceId: getOrCreateDeviceId() }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || 'Login failed');

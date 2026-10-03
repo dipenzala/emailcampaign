@@ -1,11 +1,13 @@
 import crypto from 'crypto';
 
 const SECRET = process.env.SESSION_SECRET || 'dev-secret-change-me';
+export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 export type SessionPayload = {
   userId: string;
   username: string;
   role: string;
+  deviceId: string;
   ts: number;
 };
 
@@ -23,7 +25,6 @@ export function verifySession(token?: string): SessionPayload | null {
   if (!data || !sig) return null;
 
   const expected = crypto.createHmac('sha256', SECRET).update(data).digest('base64url');
-  // timing-safe compare
   try {
     const a = Buffer.from(sig, 'base64url');
     const b = Buffer.from(expected, 'base64url');
@@ -34,11 +35,17 @@ export function verifySession(token?: string): SessionPayload | null {
   }
 
   try {
-    const p = JSON.parse(Buffer.from(data, 'base64url').toString());
-    // 30-day expiry
-    if (!p.ts || Date.now() - p.ts > 30 * 24 * 60 * 60 * 1000) return null;
+    const p = JSON.parse(Buffer.from(data, 'base64url').toString()) as SessionPayload;
+    if (!p.ts || Date.now() - p.ts > SESSION_TTL_MS) return null;
     return p;
   } catch {
     return null;
   }
+}
+
+/**
+ * Hash the raw token to store in DB (never store raw session).
+ */
+export function hashToken(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex');
 }
