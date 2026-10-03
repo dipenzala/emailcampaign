@@ -1,25 +1,36 @@
 'use client';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useState, useEffect } from 'react';
 
-const NAV_ITEMS = [
-  { section: 'Main', items: [
-    { href: '/dashboard/live', label: 'Live Dashboard', icon: '🔴' },
-    { href: '/campaigns/new', label: 'New Campaign', icon: '📧' },
-  ]},
-  { section: 'Manage', items: [
-    { href: '/senders', label: 'Senders', icon: '🔐' },
-    { href: '/senders/rotation', label: 'Rotation', icon: '🔄' },
-    { href: '/anti-spam', label: 'Anti-Spam', icon: '🛡️' },
-  ]},
-  { section: 'History', items: [
-    { href: '/history', label: 'Campaigns', icon: '📜' },
-  ]},
-  { section: 'Account', items: [
-    { href: '/settings', label: 'Settings', icon: '⚙️' },
-    { href: '/help', label: 'Help', icon: '❓' },
-  ]},
+const NAV_SECTIONS = [
+  {
+    section: 'Dashboard',
+    items: [
+      { href: '/dashboard/live', label: 'Live Dashboard', icon: '📊' },
+      { href: '/campaigns/new', label: 'New Campaign', icon: '✉️' },
+    ],
+  },
+  {
+    section: 'Manage',
+    items: [
+      { href: '/senders', label: 'Senders', icon: '🔐' },
+      { href: '/senders/rotation', label: 'Rotation', icon: '🔄' },
+      { href: '/anti-spam', label: 'Anti-Spam', icon: '🛡️' },
+    ],
+  },
+  {
+    section: 'Activity',
+    items: [
+      { href: '/history', label: 'Campaign History', icon: '📜' },
+    ],
+  },
+  {
+    section: 'System',
+    items: [
+      { href: '/settings', label: 'Settings', icon: '⚙️' },
+      { href: '/help', label: 'Help & Guide', icon: '💡' },
+    ],
+  },
 ];
 
 export default function Sidebar({ mobileOpen, setMobileOpen }: { mobileOpen: boolean; setMobileOpen: (v: boolean) => void }) {
@@ -34,31 +45,26 @@ export default function Sidebar({ mobileOpen, setMobileOpen }: { mobileOpen: boo
 
   return (
     <>
-      {/* Backdrop */}
-      {mobileOpen && (
-        <div
-          className="sidebar-backdrop"
-          onClick={() => setMobileOpen(false)}
-        />
-      )}
+      {mobileOpen && <div className="sidebar-backdrop" onClick={() => setMobileOpen(false)} />}
 
       <aside className={`sidebar ${mobileOpen ? 'mobile-open' : ''}`}>
-        <div className="sidebar-logo">
-          <div className="sidebar-logo-mark" />
-          <div className="sidebar-logo-text">EmailCampaign</div>
-          <button
-            className="sidebar-close-mobile"
-            onClick={() => setMobileOpen(false)}
-            aria-label="Close menu"
-          >✕</button>
+        <div className="sidebar-header">
+          <Link href="/dashboard/live" className="sidebar-brand" onClick={() => setMobileOpen(false)}>
+            <div className="sidebar-logo-mark" />
+            <div className="sidebar-brand-text">
+              <div className="sidebar-brand-title">EmailCampaign</div>
+              <div className="sidebar-brand-sub">Premium</div>
+            </div>
+          </Link>
+          <button className="sidebar-close-mobile" onClick={() => setMobileOpen(false)} aria-label="Close">✕</button>
         </div>
 
         <nav className="sidebar-nav">
-          {NAV_ITEMS.map(group => (
-            <div key={group.section}>
+          {NAV_SECTIONS.map(group => (
+            <div key={group.section} className="sidebar-group">
               <div className="sidebar-section">{group.section}</div>
               {group.items.map(item => {
-                const active = path === item.href || (item.href !== '/dashboard' && path.startsWith(item.href + '/'));
+                const active = path === item.href || path.startsWith(item.href + '/');
                 return (
                   <Link
                     key={item.href}
@@ -76,8 +82,8 @@ export default function Sidebar({ mobileOpen, setMobileOpen }: { mobileOpen: boo
         </nav>
 
         <div className="sidebar-footer">
-          <button className="sidebar-collapse-btn" onClick={logout} style={{ color: '#fca5a5' }}>
-            <span>🚪</span>
+          <button className="sidebar-logout" onClick={logout}>
+            <span className="sidebar-logout-icon">🚪</span>
             <span>Logout</span>
           </button>
         </div>

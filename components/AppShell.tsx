@@ -12,17 +12,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   const isPublic = PUBLIC_ROUTES.includes(path);
 
-  // Auto-close on route change
   useEffect(() => { setMobileOpen(false); }, [path]);
 
-  // Lock body scroll when sidebar open on mobile
   useEffect(() => {
     if (typeof document === 'undefined') return;
-    if (mobileOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
+    document.body.style.overflow = mobileOpen ? 'hidden' : '';
     return () => { document.body.style.overflow = ''; };
   }, [mobileOpen]);
 
