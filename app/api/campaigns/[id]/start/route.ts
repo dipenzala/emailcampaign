@@ -1,7 +1,5 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getSendQueue } from '@/lib/queue';
-import { connectRedis } from '@/lib/redis';
 import { checkEmail } from '@/lib/spam-checker';
 
 export const dynamic = "force-dynamic";
@@ -33,60 +31,30 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
       );
     }
 
+    // Mark campaign as RUNNING
     await prisma.campaign.update({
       where: { id: params.id },
       data: { status: 'RUNNING', startedAt: new Date() },
     });
 
-    const recips = await prisma.campaignRecipient.findMany({
+    // Count queued recipients
+    const queued = await prisma.campaignRecipient.count({
       where: { campaignId: params.id, status: 'QUEUED' },
-      select: { id: true },
     });
 
-    if (recips.length === 0) {
-      return NextResponse.json({ ok: true, queued: 0, message: 'No queued recipients' });
-    }
-
-    try {
-      await connectRedis(8000);
-    } catch (e: any) {
-      return NextResponse.json({
-        ok: true,
-        queued: 0,
-        total: recips.length,
-        warning: 'Redis not reachable — use retry-queue later',
-        redis_error: e.message,
-      });
-    }
-
-    const q = getSendQueue();
-
-    // NO COLON — use dash separator
-    const jobs = recips.map((r) => ({
-      name: 'send',
-      data: { campaignId: params.id, recipientId: r.id },
-      opts: {
-        jobId: params.id + '-' + r.id,
-        attempts: 4,
-        backoff: { type: 'exponential' as const, delay: 5000 },
-        removeOnComplete: 1000,
-        removeOnFail: 5000,
-      },
-    }));
-
-    await q.addBulk(jobs);
-
+    // NO BullMQ — polling worker will pick these up from DB
     return NextResponse.json({
       ok: true,
-      queued: jobs.length,
-      total: recips.length,
+      queued,
+      total: campaign.totalCount,
       spamScore: report.score,
+      message: 'Campaign started. Worker will process from DB.',
       elapsed: Date.now() - t0,
     });
   } catch (err: any) {
     console.error('[start]', err);
     return NextResponse.json(
-      { error: 'Failed', message: err?.message ?? String(err) },
+      { error: 'Failed to start', message: err?.message ?? String(err) },
       { status: 500 }
     );
   }
