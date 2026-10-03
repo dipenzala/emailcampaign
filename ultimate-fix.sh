@@ -1,3 +1,34 @@
+#!/usr/bin/env bash
+
+echo "==============================================="
+echo " 🎯 ULTIMATE FIX — Zero Errors, Zero Failures"
+echo "==============================================="
+
+cd "$(dirname "$0")" 2>/dev/null || true
+[ -f "package.json" ] || { echo "❌ project root me chalao"; exit 1; }
+echo "📁 $(pwd)"
+echo ""
+
+# ==========================================
+# 1. LOAD .env
+# ==========================================
+if [ -f ".env" ]; then
+  set -a
+  source .env
+  set +a
+  echo "✅ .env loaded"
+else
+  echo "❌ .env nahi mila"
+  exit 1
+fi
+echo ""
+
+# ==========================================
+# 2. FIX LOCAL-SENDER.JS — Smart sender picking
+# ==========================================
+echo "🔧 Step 1: Fixing local-sender.js..."
+
+cat > local-sender.js <<'JSEOF'
 // ==========================================
 // Smart Local Sender — Zero Error Edition
 // ==========================================
@@ -356,3 +387,255 @@ async function poll(oauthClients) {
     process.exit(0);
   });
 })();
+JSEOF
+
+echo "   ✅ local-sender.js updated (smart sender picking + auto-suppress)"
+echo ""
+
+# ==========================================
+# 3. AUTO-CLEAN current stuck campaign
+# ==========================================
+echo "🧹 Step 2: Cleaning stuck recipients..."
+node -e '
+const { PrismaClient } = require("@prisma/client");
+(async () => {
+  const p = new PrismaClient();
+  
+  // Suppress the known-broken recipient
+  await p.suppressionList.upsert({
+    where: { email: "alvaromotormoney@gmail.com" },
+    create: { email: "alvaromotormoney@gmail.com", reason: "MANUAL_BLOCK" },
+    update: {},
+  });
+  
+  // Mark all failed recipients of that email as SUPPRESSED
+  const r = await p.campaignRecipient.updateMany({
+    where: {
+      contact: { email: "alvaromotormoney@gmail.com" },
+      status: { in: ["FAILED", "QUEUED", "PROCESSING"] },
+    },
+    data: { status: "SUPPRESSED", errorCode: "SUPPRESSED", errorMessage: "Auto-suppressed" },
+  });
+  console.log("   ✅ Suppressed " + r.count + " stuck recipient(s)");
+  
+  // Reset other FAILED → QUEUED for retry
+  const r2 = await p.campaignRecipient.updateMany({
+    where: { status: "FAILED" },
+    data: { status: "QUEUED", attemptCount: 0, errorMessage: null, errorCode: null },
+  });
+  console.log("   ✅ Reset " + r2.count + " FAILED → QUEUED");
+  
+  await p.$disconnect();
+})();
+'
+echo ""
+
+# ==========================================
+# 4. Add Disconnect button to /senders
+# ==========================================
+echo "🎨 Step 3: Adding Disconnect button to /senders page..."
+
+mkdir -p app/senders
+
+cat > app/senders/page.tsx <<'EOF'
+'use client';
+import { useEffect, useState } from 'react';
+
+export default function SendersPage() {
+  const [list, setList] = useState<any[]>([]);
+  const [email, setEmail] = useState('');
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const load = () => fetch('/api/senders').then(r => r.json()).then(setList);
+  useEffect(() => { load(); }, []);
+
+  const connect = () => {
+    if (!email) return;
+    window.location.href = '/api/oauth/google/start?email=' + encodeURIComponent(email);
+  };
+
+  const disconnect = async (id: string, email: string) => {
+    if (!confirm(`Disconnect ${email}?\n\nYe account future campaigns me use nahi hoga.`)) return;
+    setBusy(true);
+    try {
+      const r = await fetch('/api/senders/disconnect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      if (!r.ok) throw new Error('Failed');
+      setMsg(`✅ Disconnected ${email}`);
+      await load();
+    } catch (e: any) {
+      setMsg('❌ ' + e.message);
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div className="space-y-6">
+      <h1 className="text-3xl font-semibold tracking-tight">🔐 Manage Senders</h1>
+
+      {msg && <div className="card text-sm">{msg}</div>}
+
+      {/* Connect */}
+      <div className="card">
+        <h2 className="font-semibold mb-2">Connect Gmail / Workspace</h2>
+        <div className="flex gap-3 flex-wrap">
+          <input
+            className="input max-w-xs"
+            placeholder="sales01@company.com"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+          />
+          <button className="btn btn-primary" onClick={connect} disabled={!email}>
+            Connect Google
+          </button>
+        </div>
+        <p className="text-xs text-slate-400 mt-2">
+          OAuth only. Never share Gmail password. Permission: "Send email on your behalf" must be allowed.
+        </p>
+      </div>
+
+      {/* Senders list */}
+      <div className="card !p-0 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-white/5 text-slate-400 text-left text-xs uppercase">
+            <tr>
+              <th className="p-3">Email</th>
+              <th className="p-3">Name</th>
+              <th className="p-3">Status</th>
+              <th className="p-3">Sent Today</th>
+              <th className="p-3">Last Success</th>
+              <th className="p-3 text-right">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.map(s => (
+              <tr key={s.id} className="border-t border-white/5">
+                <td className="p-3">{s.email}</td>
+                <td className="p-3">{s.displayName}</td>
+                <td className="p-3">
+                  <span className={s.status === 'CONNECTED' ? 'text-green-400' : 'text-red-400'}>
+                    {s.status}
+                  </span>
+                </td>
+                <td className="p-3">{s.sentToday}</td>
+                <td className="p-3 text-xs text-slate-500">
+                  {s.lastSuccessAt ? new Date(s.lastSuccessAt).toLocaleString() : '—'}
+                </td>
+                <td className="p-3 text-right">
+                  <button
+                    onClick={() => disconnect(s.id, s.email)}
+                    disabled={busy}
+                    className="text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20 transition disabled:opacity-50"
+                  >
+                    Disconnect
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {list.length === 0 && (
+              <tr>
+                <td colSpan={6} className="p-8 text-center text-slate-500">
+                  No senders connected. Add one above.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+EOF
+sed -i 's/\r$//' app/senders/page.tsx
+echo "   ✅ Disconnect button added"
+
+# ==========================================
+# 5. Create disconnect API endpoint
+# ==========================================
+echo ""
+echo "🔌 Step 4: Creating /api/senders/disconnect endpoint..."
+
+mkdir -p app/api/senders/disconnect
+
+cat > app/api/senders/disconnect/route.ts <<'EOF'
+import { NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
+import { cookies } from 'next/headers';
+import { verifySession } from '@/lib/session';
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+export async function POST(req: Request) {
+  try {
+    const token = cookies().get('ec_session')?.value;
+    const session = verifySession(token);
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { id } = await req.json();
+    if (!id) {
+      return NextResponse.json({ error: 'id required' }, { status: 400 });
+    }
+
+    await prisma.senderAccount.update({
+      where: { id },
+      data: {
+        status: 'DISCONNECTED',
+        isActive: false,
+        accessToken: null,
+        refreshToken: null,
+        tokenExpiry: null,
+      },
+    });
+
+    return NextResponse.json({ ok: true });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+EOF
+sed -i 's/\r$//' app/api/senders/disconnect/route.ts
+echo "   ✅ Disconnect endpoint created"
+
+# ==========================================
+# 6. Git push
+# ==========================================
+echo ""
+echo "🌿 Step 5: Git push..."
+git config --local user.email "63999328+dipenzala@users.noreply.github.com"
+git config --local user.name "Dipen Zala"
+
+git add -A
+git diff --cached --quiet || git commit -m "Feat: smart sender + auto-suppress + disconnect button"
+
+git push -u origin main 2>&1 | tail -5
+
+echo ""
+echo "==============================================="
+echo " ✅ ALL FIXES APPLIED"
+echo "==============================================="
+echo ""
+echo "🎯 AB YE KARO:"
+echo ""
+echo "1. Local sender chalao (naye smart code ke saath):"
+echo "   bash local-sender.sh"
+echo ""
+echo "   Ye ab:"
+echo "   • Startup pe har sender ka token test karega"
+echo "   • Sirf kaam karne wale senders use karega"
+echo "   • Broken senders ko auto-disconnect karega"
+echo "   • Permission errors ko auto-suppress karega"
+echo "   • Chhoda hua 'alvaromotormoney' ab retry nahi karega"
+echo ""
+echo "2. Disconnect button 2-3 min me live hoga:"
+echo "   https://emailcampaign-ten.vercel.app/senders"
+echo ""
+echo "3. Agar sender test fail hua:"
+echo "   → /senders page pe reconnect karo (fresh OAuth)"
+echo "==============================================="
