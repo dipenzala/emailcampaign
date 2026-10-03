@@ -6,40 +6,32 @@ import { verifyAuthToken, AUTH_COOKIE } from '@/lib/simple-auth';
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-// Return JSON for ALL errors (never HTML)
 function jsonError(msg: string, status = 500) {
   return NextResponse.json({ ok: false, error: msg, type: 'error' }, { status });
 }
 
 export async function GET(req: Request) {
   try {
-    // Auth check
-    const cookieStore = cookies();
-    const token = cookieStore.get(AUTH_COOKIE)?.value;
-    if (!verifyAuthToken(token)) {
-      return jsonError('Unauthorized', 401);
-    }
+    const token = cookies().get(AUTH_COOKIE)?.value;
+    if (!verifyAuthToken(token)) return jsonError('Unauthorized', 401);
 
     const url = new URL(req.url);
     const type = url.searchParams.get('type') || '';
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '200'), 500);
 
-    // CAMPAIGNS
     if (type === 'campaigns') {
-      const campaigns = await prisma.campaign.findMany({
+      const items = await prisma.campaign.findMany({
         orderBy: { createdAt: 'desc' },
         take: limit,
         select: {
           id: true, name: true, subject: true, status: true,
           totalCount: true, sentCount: true, failedCount: true,
-          bouncedCount: true, suppressedCount: true,
-          createdAt: true,
+          bouncedCount: true, suppressedCount: true, createdAt: true,
         },
       });
-      return NextResponse.json({ ok: true, type: 'campaigns', items: campaigns });
+      return NextResponse.json({ ok: true, type: 'campaigns', items });
     }
 
-    // RECIPIENTS BY STATUS
     const statusMap: Record<string, string[]> = {
       sent: ['SENT'],
       pending: ['QUEUED', 'PROCESSING'],
@@ -52,11 +44,9 @@ export async function GET(req: Request) {
     };
 
     const statuses = statusMap[type];
-    if (!statuses) {
-      return jsonError('Unknown type: ' + type, 400);
-    }
+    if (!statuses) return jsonError('Unknown type: ' + type, 400);
 
-    const recipients = await prisma.campaignRecipient.findMany({
+    const recips = await prisma.campaignRecipient.findMany({
       where: { status: { in: statuses } },
       orderBy: { queuedAt: 'desc' },
       take: limit,
@@ -66,17 +56,14 @@ export async function GET(req: Request) {
       },
     });
 
-    const senderIds = [...new Set(recipients.map(r => r.senderAccountId).filter(Boolean))] as string[];
+    const senderIds = [...new Set(recips.map(r => r.senderAccountId).filter(Boolean))] as string[];
     const senders = senderIds.length
-      ? await prisma.senderAccount.findMany({
-          where: { id: { in: senderIds } },
-          select: { id: true, email: true },
-        })
+      ? await prisma.senderAccount.findMany({ where: { id: { in: senderIds } }, select: { id: true, email: true } })
       : [];
     const senderMap: Record<string, string> = {};
     senders.forEach(s => { senderMap[s.id] = s.email; });
 
-    const items = recipients.map(r => ({
+    const items = recips.map(r => ({
       id: r.id,
       email: r.contact.email,
       name: r.contact.name,

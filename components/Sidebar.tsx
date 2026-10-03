@@ -8,27 +8,27 @@ const NAV_SECTIONS = [
     items: [
       { href: '/dashboard/live', label: 'Live Dashboard', icon: '📊' },
       { href: '/campaigns/new', label: 'New Campaign', icon: '✉️' },
-    ],
-  },
-  {
-    section: 'Manage',
-    items: [
-      { href: '/senders', label: 'Senders', icon: '🔐' },
-      { href: '/senders/rotation', label: 'Rotation', icon: '🔄' },
-      { href: '/anti-spam', label: 'Anti-Spam', icon: '🛡️' },
-    ],
-  },
-  {
-    section: 'Activity',
-    items: [
       { href: '/history', label: 'Campaign History', icon: '📜' },
+    ],
+  },
+  {
+    section: 'Senders',
+    items: [
+      { href: '/senders', label: 'Manage Senders', icon: '🔐' },
+      { href: '/senders/rotation', label: 'Rotation', icon: '🔄' },
+    ],
+  },
+  {
+    section: 'Protection',
+    items: [
+      { href: '/anti-spam', label: 'Spam Checker', icon: '🛡️' },
     ],
   },
   {
     section: 'System',
     items: [
       { href: '/settings', label: 'Settings', icon: '⚙️' },
-      { href: '/help', label: 'Help & Guide', icon: '💡' },
+      { href: '/help', label: 'Help', icon: '💡' },
     ],
   },
 ];
@@ -56,7 +56,7 @@ export default function Sidebar({ mobileOpen, setMobileOpen }: { mobileOpen: boo
               <div className="sidebar-brand-sub">Premium</div>
             </div>
           </Link>
-          <button className="sidebar-close-mobile" onClick={() => setMobileOpen(false)} aria-label="Close">✕</button>
+          <button className="sidebar-close-mobile" onClick={() => setMobileOpen(false)}>✕</button>
         </div>
 
         <nav className="sidebar-nav">

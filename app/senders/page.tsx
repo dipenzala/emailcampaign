@@ -1,15 +1,16 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { toast } from '@/components/Toast';
 
-export default function SendersPage() {
+function SendersInner() {
+  const params = useSearchParams();
   const [list, setList] = useState<any[]>([]);
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const load = async () => {
-    setLoading(true);
     try {
       const r = await fetch('/api/senders');
       const j = await r.json();
@@ -18,10 +19,25 @@ export default function SendersPage() {
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    const iv = setInterval(load, 5000);
+    return () => clearInterval(iv);
+  }, []);
+
+  useEffect(() => {
+    const connected = params.get('connected');
+    if (connected) {
+      toast(`✅ Connected ${connected}`, 'success');
+      window.history.replaceState({}, '', '/senders');
+    }
+  }, [params]);
 
   const connect = () => {
-    if (!email) return;
+    if (!email || !email.includes('@')) {
+      toast('Valid email daalo', 'error');
+      return;
+    }
     window.location.href = '/api/oauth/google/start?email=' + encodeURIComponent(email);
   };
 
@@ -41,28 +57,40 @@ export default function SendersPage() {
     setBusy(false);
   };
 
+  const reconnect = async (em: string) => {
+    window.location.href = '/api/oauth/google/start?email=' + encodeURIComponent(em);
+  };
+
+  const connected = list.filter(s => s.status === 'CONNECTED').length;
+
   return (
     <div className="space-y-5">
-      <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">🔐 Manage Senders</h1>
+      <div>
+        <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">🔐 Manage Senders</h1>
+        <p className="text-sm text-slate-400 mt-1">
+          {connected}/{list.length} connected · Auto-refresh 5s
+        </p>
+      </div>
 
       {/* Connect */}
       <div className="card">
-        <h2 className="font-semibold mb-3 text-sm md:text-base">Connect Gmail / Workspace</h2>
+        <h2 className="font-semibold mb-3 text-sm md:text-base">➕ Connect Gmail Account</h2>
         <div className="flex flex-col sm:flex-row gap-2">
           <input
             className="input flex-1"
-            placeholder="sales01@company.com"
+            placeholder="yourname@gmail.com"
             value={email}
             onChange={e => setEmail(e.target.value)}
             type="email"
+            onKeyDown={e => e.key === 'Enter' && connect()}
           />
           <button className="btn btn-primary" onClick={connect} disabled={!email || busy}>
             Connect Google
           </button>
         </div>
-        <p className="text-xs text-slate-400 mt-2">
-          OAuth only. Permission: "Send email on your behalf" must be allowed.
-        </p>
+        <div className="mt-3 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-xs text-blue-300">
+          ⚠️ Google screen pe <b>"Send email on your behalf"</b> ko <b>ALLOW</b> karo — warna emails nahi jayengi.
+        </div>
       </div>
 
       {/* Senders list */}
@@ -71,89 +99,69 @@ export default function SendersPage() {
       ) : list.length === 0 ? (
         <div className="card text-center py-12">
           <div className="text-4xl mb-2">📭</div>
-          <p className="text-slate-400">No senders connected</p>
+          <p className="text-slate-400 text-sm">Koi sender connect nahi hai</p>
         </div>
       ) : (
-        <>
-          {/* Desktop table */}
-          <div className="hidden md:block card !p-0 overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-white/5 text-slate-400 text-left text-xs uppercase">
-                <tr>
-                  <th className="p-3">Email</th>
-                  <th className="p-3">Name</th>
-                  <th className="p-3">Status</th>
-                  <th className="p-3">Sent Today</th>
-                  <th className="p-3">Last Success</th>
-                  <th className="p-3 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {list.map(s => (
-                  <tr key={s.id} className="border-t border-white/5">
-                    <td className="p-3">{s.email}</td>
-                    <td className="p-3">{s.displayName || '—'}</td>
-                    <td className="p-3">
-                      <span className={s.status === 'CONNECTED' ? 'text-emerald-400' : 'text-red-400'}>
-                        ● {s.status}
-                      </span>
-                    </td>
-                    <td className="p-3">{s.sentToday}</td>
-                    <td className="p-3 text-xs text-slate-500">
-                      {s.lastSuccessAt ? new Date(s.lastSuccessAt).toLocaleString() : '—'}
-                    </td>
-                    <td className="p-3 text-right">
-                      <button
-                        onClick={() => disconnect(s.id, s.email)}
-                        disabled={busy}
-                        className="text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20 transition"
-                      >
-                        Disconnect
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        <div className="space-y-3">
+          {list.map(s => (
+            <div key={s.id} className="card !p-4">
+              <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium text-sm truncate">{s.email}</div>
+                  {s.displayName && <div className="text-xs text-slate-500 truncate">{s.displayName}</div>}
+                </div>
+                <span className={`text-xs px-2.5 py-1 rounded-lg font-medium flex-shrink-0 ${
+                  s.status === 'CONNECTED'
+                    ? 'bg-emerald-500/20 text-emerald-400'
+                    : 'bg-red-500/20 text-red-400'
+                }`}>
+                  ● {s.status}
+                </span>
+              </div>
 
-          {/* Mobile cards */}
-          <div className="md:hidden space-y-3">
-            {list.map(s => (
-              <div key={s.id} className="card !p-4">
-                <div className="flex items-start justify-between gap-2 mb-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="text-xs text-slate-500 truncate">{s.displayName || 'No name'}</div>
-                    <div className="font-medium text-sm truncate">{s.email}</div>
-                  </div>
-                  <span className={`text-xs flex-shrink-0 px-2 py-1 rounded-lg ${s.status === 'CONNECTED' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
-                    ● {s.status}
-                  </span>
+              <div className="grid grid-cols-3 gap-2 text-xs mb-3">
+                <div className="bg-white/5 rounded-lg p-2">
+                  <div className="text-slate-500 text-[10px]">SENT TODAY</div>
+                  <div className="font-semibold text-sm">{s.sentToday}</div>
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-xs mb-3">
-                  <div className="bg-white/5 rounded-lg p-2">
-                    <div className="text-slate-500 text-[10px]">SENT TODAY</div>
-                    <div className="font-semibold text-sm">{s.sentToday}</div>
-                  </div>
-                  <div className="bg-white/5 rounded-lg p-2">
-                    <div className="text-slate-500 text-[10px]">LAST SUCCESS</div>
-                    <div className="font-semibold text-xs">
-                      {s.lastSuccessAt ? new Date(s.lastSuccessAt).toLocaleDateString() : '—'}
-                    </div>
-                  </div>
+                <div className="bg-white/5 rounded-lg p-2">
+                  <div className="text-slate-500 text-[10px]">LIMIT</div>
+                  <div className="font-semibold text-sm">{s.dailyLimit || 500}</div>
                 </div>
+                <div className="bg-white/5 rounded-lg p-2">
+                  <div className="text-slate-500 text-[10px]">REP</div>
+                  <div className="font-semibold text-sm">{s.reputationScore ?? 100}</div>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => reconnect(s.email)}
+                  disabled={busy}
+                  className="btn btn-ghost flex-1 text-xs"
+                >
+                  🔄 Reconnect
+                </button>
                 <button
                   onClick={() => disconnect(s.id, s.email)}
                   disabled={busy}
-                  className="btn btn-danger w-full text-xs"
+                  className="btn btn-danger flex-1 text-xs"
                 >
                   Disconnect
                 </button>
               </div>
-            ))}
-          </div>
-        </>
+            </div>
+          ))}
+        </div>
       )}
     </div>
+  );
+}
+
+export default function SendersPage() {
+  return (
+    <Suspense fallback={<div className="card text-center py-8 text-slate-500">Loading...</div>}>
+      <SendersInner />
+    </Suspense>
   );
 }
