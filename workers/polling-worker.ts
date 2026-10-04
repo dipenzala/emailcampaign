@@ -8,21 +8,17 @@ import { renderTemplate } from '../lib/personalization';
 import { pickNextSenderStrict, markSenderUsed } from '../lib/sender-rotation';
 import { handleBounce } from '../lib/bounce-handler';
 
-// Inject tracking pixel into HTML
+const POLL_INTERVAL = 3000;
+const STRICT_MODE = true;              // one-by-one
+let running = true;
+let processing = false;
+
 function injectTrackingPixel(html: string, recipientId: string, appUrl: string): string {
   const pixelUrl = `${appUrl}/api/track/open/${recipientId}`;
   const pixel = `<img src="${pixelUrl}" width="1" height="1" style="display:none" alt="" />`;
-  if (/<\/body>/i.test(html)) {
-    return html.replace(/<\/body>/i, `${pixel}</body>`);
-  }
+  if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, `${pixel}</body>`);
   return html + pixel;
 }
-
-const POLL_INTERVAL = 3000;
-const BATCH_SIZE = 5;
-
-let running = true;
-let processing = false;
 
 async function sendViaGmail(sender: any, to: string, subject: string, html: string, text: string, unsubUrl?: string) {
   const access = sender.accessToken ? decrypt(sender.accessToken) : '';
@@ -48,10 +44,9 @@ async function processOne(recipient: any) {
   const { id: recipientId, campaignId } = recipient;
 
   const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
-  if (!campaign) return false;
-  if (campaign.status !== 'RUNNING') return false;
+  if (!campaign || campaign.status !== 'RUNNING') return false;
 
-  // Suppression check
+  // Suppression
   const sup = await prisma.suppressionList.findUnique({ where: { email: recipient.contact.email } });
   if (sup) {
     await prisma.campaignRecipient.update({
@@ -66,19 +61,18 @@ async function processOne(recipient: any) {
     return true;
   }
 
-  // Mark processing
   await prisma.campaignRecipient.update({
     where: { id: recipientId },
     data: { status: 'PROCESSING', attemptCount: recipient.attemptCount + 1 },
   });
 
-  // ============ STRICT ROTATION ============
-  const sender = await pickNextSenderStrict({
-    batchLimit: campaign.batchLimit ?? 10,
-  });
+  // ============ STRICT 1-BY-1 ROTATION ============
+  const batchLimit = STRICT_MODE ? 1 : (campaign.batchLimit ?? 10);
+
+  const sender = await pickNextSenderStrict({ batchLimit });
 
   if (!sender) {
-    console.log('⏸️  No sender available — all at cap');
+    console.log('⏸️  No sender available');
     await prisma.campaignRecipient.update({
       where: { id: recipientId },
       data: { status: 'QUEUED' },
@@ -86,22 +80,22 @@ async function processOne(recipient: any) {
     return false;
   }
 
-  console.log(`📤 [Sender: ${sender.email}] batch=${sender.batchCount}/${campaign.batchLimit ?? 10} sent=${sender.sentToday}/${sender.dailyLimit}`);
+  console.log(`\n📤 [SENDER] ${sender.email}`);
+  console.log(`   Batch: ${sender.batchCount + 1}/${batchLimit} | Sent today: ${sender.sentToday}/${sender.dailyLimit}`);
 
   const unsubUrl = `${process.env.APP_URL}/api/unsubscribe/${Buffer.from(recipient.contact.email).toString('base64url')}`;
-  let personalizedHtml = renderTemplate(campaign.html, {
+  let html = renderTemplate(campaign.html, {
     name: recipient.contact.name ?? '',
     email: recipient.contact.email,
     company: recipient.contact.company ?? '',
     city: recipient.contact.city ?? '',
     phone: recipient.contact.phone ?? '',
   });
-  personalizedHtml = injectTrackingPixel(personalizedHtml, recipient.id, process.env.APP_URL || );
-  const text = htmlToText(personalizedHtml);
+  html = injectTrackingPixel(html, recipientId, process.env.APP_URL || '');
 
   try {
     const { id: providerMessageId, access, refresh } = await sendViaGmail(
-      sender, recipient.contact.email, campaign.subject, personalizedHtml, text, unsubUrl
+      sender, recipient.contact.email, campaign.subject, html, htmlToText(html), unsubUrl
     );
 
     await prisma.campaignRecipient.update({
@@ -130,7 +124,7 @@ async function processOne(recipient: any) {
       });
     }
 
-    console.log(`✅ SENT [${sender.email}] → ${recipient.contact.email}`);
+    console.log(`   ✅ SENT → ${recipient.contact.email}`);
 
     const remaining = await prisma.campaignRecipient.count({
       where: { campaignId, status: { in: ['QUEUED', 'PROCESSING'] } },
@@ -140,9 +134,8 @@ async function processOne(recipient: any) {
         where: { id: campaignId },
         data: { status: 'COMPLETED', completedAt: new Date() },
       });
-      console.log('🎉 CAMPAIGN COMPLETED');
+      console.log('\n🎉 CAMPAIGN COMPLETED');
     }
-
     return true;
   } catch (err: any) {
     const msg = err?.message ?? 'Send failed';
@@ -170,11 +163,10 @@ async function processOne(recipient: any) {
         data: { failedCount: { increment: 1 } },
       });
       if (isBounce) await handleBounce({ email: recipient.contact.email, senderAccountId: sender.id, bounceType: 'HARD' });
-      console.log(`⛔ ${isBounce ? 'BOUNCED' : 'SUPPRESSED'} ${recipient.contact.email}`);
+      console.log(`   ⛔ ${isBounce ? 'BOUNCED' : 'SUPPRESSED'} ${recipient.contact.email}`);
       return false;
     }
 
-    // Retryable
     if (recipient.attemptCount < 3) {
       await prisma.campaignRecipient.update({
         where: { id: recipientId },
@@ -190,32 +182,32 @@ async function processOne(recipient: any) {
         data: { failedCount: { increment: 1 } },
       });
     }
-    console.log(`❌ ${recipient.contact.email}: ${msg.slice(0, 60)}`);
+    console.log(`   ❌ ${recipient.contact.email}: ${msg.slice(0, 60)}`);
     return false;
   }
 }
 
+// ==========================================
+// POLL — Strictly process ONE at a time
+// ==========================================
 async function poll() {
   if (!running || processing) return;
   processing = true;
 
   try {
+    // STRICT MODE: take only 1 recipient at a time
     const recips = await prisma.campaignRecipient.findMany({
       where: {
         status: 'QUEUED',
         campaign: { status: 'RUNNING' },
       },
       include: { contact: true },
-      take: BATCH_SIZE,
+      take: 1,                    // ← ONE AT A TIME
       orderBy: { queuedAt: 'asc' },
     });
 
     if (recips.length > 0) {
-      console.log(`\n📬 ${recips.length} queued`);
-      for (const r of recips) {
-        if (!running) break;
-        await processOne(r);
-      }
+      await processOne(recips[0]);
     }
   } catch (e: any) {
     console.error('Poll error:', e.message);
@@ -224,14 +216,17 @@ async function poll() {
   }
 }
 
-// ============ START ============
+// ==========================================
+// START
+// ==========================================
 console.log('');
 console.log('═══════════════════════════════════════════');
-console.log(' 🔄 STRICT ROTATION WORKER');
+console.log(' 🔄 STRICT 1-BY-1 WORKER');
 console.log('═══════════════════════════════════════════');
+console.log('   Mode:       One email at a time');
+console.log('   Rotation:   Sender 1 → Sender 2 → Sender 3 → ...');
+console.log('   Concurrency: 1');
 console.log('   Poll:       ' + (POLL_INTERVAL / 1000) + 's');
-console.log('   Batch size: ' + BATCH_SIZE);
-console.log('   Mode:       Sender 1 → Sender 2 → Sender 3 → ...');
 console.log('');
 console.log('🎯 Listening for QUEUED recipients...');
 console.log('');

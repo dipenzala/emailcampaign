@@ -11,7 +11,7 @@ export default function NewCampaign() {
   const [name, setName] = useState('Campaign ' + new Date().toISOString().slice(0, 10));
   const [subject, setSubject] = useState('');
   const [html, setHtml] = useState('<!DOCTYPE html>\n<html>\n<body>\n<h1>Hello {{name}}</h1>\n<p>Update for {{company}}.</p>\n<p><a href="https://example.com/unsubscribe">Unsubscribe</a></p>\n</body>\n</html>');
-  const [batchLimit, setBatchLimit] = useState(10);
+  const [batchLimit, setBatchLimit] = useState(1);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [stats, setStats] = useState<any>(null);
   const [busy, setBusy] = useState(false);
