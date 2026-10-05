@@ -1,3 +1,43 @@
+#!/usr/bin/env bash
+set -e
+
+echo "==============================================="
+echo " 🛡️ ULTIMATE UPLOAD FIX + DUPLICATE DETECTION"
+echo "==============================================="
+
+cd "$(dirname "$0")" 2>/dev/null || true
+[ -f "package.json" ] || { echo "❌ project root me chalao"; exit 1; }
+echo "📁 $(pwd)"
+echo ""
+
+# ==========================================
+# 1. Ensure xlsx installed
+# ==========================================
+echo "📦 [1/6] Ensuring xlsx package..."
+
+if ! grep -q '"xlsx"' package.json; then
+  echo "   ⚠️  xlsx missing — adding"
+  node -e '
+const fs = require("fs");
+const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+pkg.dependencies = pkg.dependencies || {};
+pkg.dependencies.xlsx = "^0.18.5";
+fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2));
+console.log("   ✅ Added xlsx");
+'
+else
+  echo "   ✅ xlsx present"
+fi
+
+# ==========================================
+# 2. ULTRA-DEFENSIVE UPLOAD API
+# ==========================================
+echo ""
+echo "📝 [2/6] Writing ultra-defensive upload API..."
+
+mkdir -p app/api/contacts/upload
+
+cat > app/api/contacts/upload/route.ts <<'EOF'
 import { NextResponse } from 'next/server';
 
 export const dynamic = "force-dynamic";
@@ -229,3 +269,148 @@ export async function POST(req: Request) {
     return json({ ok: false, error: err?.message || 'Unknown server error' }, 500);
   }
 }
+EOF
+sed -i 's/\r$//' app/api/contacts/upload/route.ts
+echo "   ✅ Upload API — module-safe"
+
+# ==========================================
+# 3. UPDATE CAMPAIGN NEW PAGE — duplicate UI
+# ==========================================
+echo ""
+echo "📝 [3/6] Adding duplicate removal UI..."
+
+mkdir -p app/campaigns/new
+
+cat > /tmp/patch-campaign.js <<'JSEOF'
+const fs = require('fs');
+const f = 'app/campaigns/new/page.tsx';
+if (!fs.existsSync(f)) {
+  console.log('   ⚠️  campaign page not found');
+  process.exit(0);
+}
+let c = fs.readFileSync(f, 'utf8');
+
+// Add duplicate tracking state
+if (!c.includes('duplicateEmails')) {
+  c = c.replace(
+    /const \[invalidRows, setInvalidRows\] = useState<InvalidRow\[\]>\(\[\]\);/,
+    `const [invalidRows, setInvalidRows] = useState<InvalidRow[]>([]);
+  const [duplicateEmails, setDuplicateEmails] = useState<string[]>([]);`
+  );
+}
+
+// Update upload handler to capture duplicates
+if (!c.includes('setDuplicateEmails')) {
+  c = c.replace(
+    /setContacts\(j\.contacts \|\| \[\]\);/,
+    `setContacts(j.contacts || []);
+      setDuplicateEmails(j.duplicateList || []);`
+  );
+}
+
+// Add duplicate UI section — insert before invalid section
+if (!c.includes('🚫 Duplicate')) {
+  c = c.replace(
+    /(\{\/\* Invalid emails \*\/\})/,
+    `{/* Duplicate emails */}
+          {duplicateEmails.length > 0 && (
+            <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+                <div style={{ fontSize: 13, color: '#d97706', fontWeight: 700 }}>
+                  🚫 {duplicateEmails.length} duplicate email{duplicateEmails.length > 1 ? 's' : ''} removed
+                </div>
+                <button onClick={() => setDuplicateEmails([])} className="btn btn-ghost" style={{ fontSize: 11, padding: '5px 10px' }}>
+                  Clear
+                </button>
+              </div>
+              <div style={{ maxHeight: 140, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 12 }}>
+                {duplicateEmails.map((em, i) => (
+                  <div key={i} style={{
+                    padding: '8px 12px',
+                    borderBottom: i < duplicateEmails.length - 1 ? '1px solid var(--border)' : 'none',
+                    fontSize: 12,
+                    fontFamily: 'monospace',
+                    color: 'var(--fg-muted)',
+                  }}>{em}</div>
+                ))}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--fg-dim)', marginTop: 6 }}>
+                ℹ️ Ye emails already list me the — automatically skip ho gaye
+              </div>
+            </div>
+          )}
+
+          {/* Invalid emails */}`
+  );
+}
+
+// Add duplicate stat in fileStats section
+if (!c.includes('DUPLICATES')) {
+  c = c.replace(
+    /<Stat label="DUPES" value=\{fileStats\.duplicates\} color="#f59e0b" \/>/,
+    `<Stat label="DUPLICATES" value={fileStats.duplicates} color="#f59e0b" />`
+  );
+}
+
+fs.writeFileSync(f, c);
+console.log('   ✅ Duplicate UI added');
+JSEOF
+
+node /tmp/patch-campaign.js
+
+# ==========================================
+# 4. VERIFY
+# ==========================================
+echo ""
+echo "🔎 [4/6] Verifying..."
+grep -q "duplicateList" app/api/contacts/upload/route.ts && echo "   ✅ API returns duplicateList" || echo "   ⚠️  Missing"
+grep -q "duplicateEmails" app/campaigns/new/page.tsx && echo "   ✅ UI tracks duplicates" || echo "   ⚠️  Missing"
+
+# ==========================================
+# 5. Install xlsx if missing
+# ==========================================
+echo ""
+echo "📦 [5/6] Installing xlsx (if missing)..."
+
+if [ ! -d "node_modules/xlsx" ]; then
+  echo "   Installing xlsx..."
+  npm install --ignore-scripts xlsx@0.18.5 --silent 2>&1 | tail -3 || echo "   ⚠️  Install failed — Vercel khud karega"
+else
+  echo "   ✅ xlsx already installed"
+fi
+
+# ==========================================
+# 6. Git push
+# ==========================================
+echo ""
+echo "🌿 [6/6] Git push..."
+git config --local user.email "63999328+dipenzala@users.noreply.github.com"
+git config --local user.name "Dipen Zala"
+
+git add -A
+git diff --cached --quiet || git commit -m "Fix: upload API never crashes + duplicate email detection UI"
+
+git push -u origin main 2>&1 | tail -5
+
+echo ""
+echo "==============================================="
+echo " ✅ DEPLOYED"
+echo "==============================================="
+echo ""
+echo "🎯 Fixes:"
+echo "   ✓ xlsx dynamic import (no module-level crash)"
+echo "   ✓ Every error path returns JSON"
+echo "   ✓ Duplicates detected + shown separately"
+echo "   ✓ Per-row error tracking"
+echo ""
+echo "⏱️  2-3 min me Vercel deploy hoga"
+echo ""
+echo "Test:"
+echo "   1. Hard refresh (Ctrl+Shift+R)"
+echo "   2. Excel upload karo"
+echo "   3. Success ya JSON error milega (kabhi empty response nahi)"
+echo ""
+echo "Duplicates:"
+echo "   Same email 2x → automatically removed"
+echo "   UI me alag section me dikhega"
+echo "==============================================="

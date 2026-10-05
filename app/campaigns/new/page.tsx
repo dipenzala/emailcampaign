@@ -23,6 +23,7 @@ export default function NewCampaign() {
   const [spamReport, setSpamReport] = useState<any>(null);
   const [manualEmails, setManualEmails] = useState('');
   const [invalidRows, setInvalidRows] = useState<InvalidRow[]>([]);
+  const [duplicateEmails, setDuplicateEmails] = useState<string[]>([]);
   const [testEmail, setTestEmail] = useState('');
   const [testSending, setTestSending] = useState(false);
   const [senders, setSenders] = useState<any[]>([]);
@@ -389,8 +390,36 @@ export default function NewCampaign() {
               <Stat label="TOTAL" value={fileStats.totalRows} />
               <Stat label="VALID" value={fileStats.valid} color="#10b981" />
               <Stat label="INVALID" value={fileStats.invalid} color="#ef4444" />
-              <Stat label="DUPES" value={fileStats.duplicates} color="#f59e0b" />
+              <Stat label="DUPLICATES" value={fileStats.duplicates} color="#f59e0b" />
               <Stat label="SUPPRESSED" value={fileStats.suppressed} color="#6b7280" />
+            </div>
+          )}
+
+          {/* Duplicate emails */}
+          {duplicateEmails.length > 0 && (
+            <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+                <div style={{ fontSize: 13, color: '#d97706', fontWeight: 700 }}>
+                  🚫 {duplicateEmails.length} duplicate email{duplicateEmails.length > 1 ? 's' : ''} removed
+                </div>
+                <button onClick={() => setDuplicateEmails([])} className="btn btn-ghost" style={{ fontSize: 11, padding: '5px 10px' }}>
+                  Clear
+                </button>
+              </div>
+              <div style={{ maxHeight: 140, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 12 }}>
+                {duplicateEmails.map((em, i) => (
+                  <div key={i} style={{
+                    padding: '8px 12px',
+                    borderBottom: i < duplicateEmails.length - 1 ? '1px solid var(--border)' : 'none',
+                    fontSize: 12,
+                    fontFamily: 'monospace',
+                    color: 'var(--fg-muted)',
+                  }}>{em}</div>
+                ))}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--fg-dim)', marginTop: 6 }}>
+                ℹ️ Ye emails already list me the — automatically skip ho gaye
+              </div>
             </div>
           )}
 
