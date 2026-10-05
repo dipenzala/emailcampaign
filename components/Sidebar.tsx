@@ -27,6 +27,7 @@ const NAV_SECTIONS = [
   {
     section: 'System',
     items: [
+      { href: '/worker', label: 'Worker', icon: '🤖' },
       { href: '/settings', label: 'Settings', icon: '⚙️' },
       { href: '/help', label: 'Help', icon: '💡' },
     ],
