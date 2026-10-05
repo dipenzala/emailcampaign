@@ -1,3 +1,147 @@
+#!/usr/bin/env bash
+set -e
+
+echo "==============================================="
+echo " 🛡️ PERMANENT FIX — Worker Auto-Trigger"
+echo "==============================================="
+
+cd ~/OneDrive/Desktop/EML/emailcampaign 2>/dev/null || cd "$(dirname "$0")" 2>/dev/null || true
+[ -f "package.json" ] || { echo "❌ emailcampaign project root me chalao"; exit 1; }
+echo "📁 $(pwd)"
+echo ""
+
+# ═══════════════════════════════════════════
+# 1. FIX "All senders capped" false alarm bug
+# ═══════════════════════════════════════════
+echo "🔧 [1/4] Fixing 'all capped' false alarm bug..."
+
+cat > lib/sender-rotation.ts <<'EOF'
+import { prisma } from './prisma';
+
+const DEFAULT_BATCH_LIMIT = 1;
+
+const WARMUP_TIERS = [
+  { maxDay: 3, limit: 5 },
+  { maxDay: 7, limit: 10 },
+  { maxDay: 14, limit: 25 },
+  { maxDay: 30, limit: 50 },
+];
+
+function effectiveCap(s: any): number {
+  const isWorkspace = s.email ? !/@gmail\.com$/i.test(s.email) : false;
+  const providerCap = isWorkspace ? 2000 : 500;
+  let warmupCap = s.dailyLimit || 350;
+  if (s.warmupEnabled) {
+    const tier = WARMUP_TIERS.find(t => s.warmupDay <= t.maxDay);
+    if (tier) warmupCap = Math.min(tier.limit, s.dailyLimit || 350);
+  }
+  return Math.min(providerCap, warmupCap, s.dailyLimit || 350);
+}
+
+/**
+ * ⚡ FIXED — No more false "all capped" alarms
+ * Picks next sender by rotationOrder with available capacity.
+ * Returns null ONLY if truly no sender available.
+ */
+export async function pickNextSenderStrict(opts: { batchLimit?: number } = {}) {
+  const batchLimit = Math.max(1, opts.batchLimit ?? DEFAULT_BATCH_LIMIT);
+
+  const senders = await prisma.senderAccount.findMany({
+    where: {
+      status: 'CONNECTED',
+      refreshToken: { not: null },
+      isActive: true,
+    },
+    orderBy: [{ rotationOrder: 'asc' }, { createdAt: 'asc' }],
+  });
+
+  if (senders.length === 0) return null;
+
+  // Find first sender with room
+  for (const s of senders) {
+    const cap = effectiveCap(s);
+    if (s.sentToday >= cap) continue;
+    if (s.batchCount < batchLimit) return s;
+  }
+
+  // All batch-full — reset batch counts and pick first available
+  await prisma.senderAccount.updateMany({
+    where: {
+      status: 'CONNECTED',
+      isActive: true,
+      refreshToken: { not: null },
+    },
+    data: { batchCount: 0 },
+  });
+
+  const fresh = await prisma.senderAccount.findMany({
+    where: { status: 'CONNECTED', refreshToken: { not: null }, isActive: true },
+    orderBy: [{ rotationOrder: 'asc' }, { createdAt: 'asc' }],
+  });
+
+  for (const s of fresh) {
+    if (s.sentToday < effectiveCap(s)) return s;
+  }
+
+  // Truly all capped — returns null
+  return null;
+}
+
+export async function markSenderUsed(senderId: string) {
+  return prisma.senderAccount.update({
+    where: { id: senderId },
+    data: {
+      sentToday: { increment: 1 },
+      batchCount: { increment: 1 },
+      lastSuccessAt: new Date(),
+    },
+  });
+}
+
+export async function resetDailyCounters() {
+  const sod = new Date();
+  sod.setHours(0, 0, 0, 0);
+  const r = await prisma.senderAccount.updateMany({
+    where: { lastResetAt: { lt: sod } },
+    data: { sentToday: 0, batchCount: 0, lastResetAt: new Date() },
+  });
+  return r.count;
+}
+
+export async function getRotationState() {
+  const senders = await prisma.senderAccount.findMany({
+    where: { status: 'CONNECTED', isActive: true, refreshToken: { not: null } },
+    orderBy: [{ rotationOrder: 'asc' }, { createdAt: 'asc' }],
+    select: {
+      id: true, email: true, sentToday: true, dailyLimit: true,
+      batchCount: true, rotationOrder: true, warmupEnabled: true,
+      warmupDay: true, lastSuccessAt: true, reputationScore: true,
+    },
+  });
+
+  let currentSender: string | null = null;
+  for (const s of senders) {
+    if (s.sentToday < effectiveCap(s) && s.batchCount < 1) {
+      currentSender = s.email;
+      break;
+    }
+  }
+
+  return { senders, currentSender };
+}
+EOF
+sed -i 's/\r$//' lib/sender-rotation.ts
+echo "   ✅ sender-rotation.ts fixed"
+
+# ═══════════════════════════════════════════
+# 2. Self-healing process route
+# ═══════════════════════════════════════════
+echo ""
+echo "🔧 [2/4] Adding self-heal + auto-reset to process route..."
+
+mkdir -p app/api/worker/process
+
+cat > app/api/worker/process/route.ts <<'EOF'
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { decrypt, encrypt } from '@/lib/crypto';
@@ -233,3 +377,70 @@ async function process() {
     return json({ ok: false, error: err?.message || 'Server error', ...results }, 500);
   }
 }
+EOF
+sed -i 's/\r$//' app/api/worker/process/route.ts
+echo "   ✅ Self-heal + auto-reset added"
+
+# ═══════════════════════════════════════════
+# 3. Fix vercel.json — Hobby plan compatible
+# ═══════════════════════════════════════════
+echo ""
+echo "🔧 [3/4] Fixing vercel.json for Hobby plan..."
+
+cat > vercel.json <<'EOF'
+{
+  "crons": [
+    {
+      "path": "/api/worker/process",
+      "schedule": "0 0 * * *"
+    }
+  ]
+}
+EOF
+sed -i 's/\r$//' vercel.json
+echo "   ✅ Cron changed to daily (Hobby-compatible)"
+
+# ═══════════════════════════════════════════
+# 4. Push + setup guide
+# ═══════════════════════════════════════════
+echo ""
+echo "🌿 [4/4] Git push..."
+git config --local user.email "63999328+dipenzala@users.noreply.github.com"
+git config --local user.name "Dipen Zala"
+
+git add -A
+git diff --cached --quiet || git commit -m "Fix: self-heal worker + batch bug + Hobby cron"
+
+git push -u origin main 2>&1 | tail -5
+
+echo ""
+echo "==============================================="
+echo " ✅ FIXED"
+echo "==============================================="
+echo ""
+echo "🎯 AB YE KARO — UptimeRobot Setup (2 min)"
+echo ""
+echo "Vercel Hobby plan me 2-min cron nahi chalta."
+echo "UptimeRobot (FREE) har 5 min me ping karega:"
+echo ""
+echo "1. https://uptimerobot.com → Sign up (free)"
+echo ""
+echo "2. Click 'Add New Monitor'"
+echo ""
+echo "3. Fill:"
+echo "   Monitor Type:  HTTP(s)"
+echo "   Friendly Name: EmailCampaign Worker"
+echo "   URL:           https://emailcampaign-ten.vercel.app/api/worker/process"
+echo "   Monitoring Interval: 5 minutes"
+echo ""
+echo "4. Click 'Create Monitor'"
+echo ""
+echo "✅ Bas! Ab har 5 min me worker khud chalega."
+echo "   Koi page open nahi chahiye, koi terminal nahi."
+echo ""
+echo "📊 Verify:"
+echo "   UptimeRobot dashboard me monitor 'Up' dikhega"
+echo "   Emails automatically jaayengi"
+echo ""
+echo "⏱️  2-3 min me Vercel deploy hoga"
+echo "==============================================="

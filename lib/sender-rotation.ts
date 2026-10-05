@@ -1,39 +1,32 @@
 import { prisma } from './prisma';
 
-const DEFAULT_BATCH = 350;
+const DEFAULT_BATCH_LIMIT = 1;
 
-const TIERS = [
-  { maxDay: 3, limit: 350 },   // Warm-up OFF by default
-  { maxDay: 7, limit: 350 },
-  { maxDay: 14, limit: 350 },
-  { maxDay: 30, limit: 350 },
+const WARMUP_TIERS = [
+  { maxDay: 3, limit: 5 },
+  { maxDay: 7, limit: 10 },
+  { maxDay: 14, limit: 25 },
+  { maxDay: 30, limit: 50 },
 ];
 
-function effectiveCap(s: {
-  warmupEnabled: boolean;
-  warmupDay: number;
-  dailyLimit: number;
-  email?: string;
-}): number {
+function effectiveCap(s: any): number {
   const isWorkspace = s.email ? !/@gmail\.com$/i.test(s.email) : false;
   const providerCap = isWorkspace ? 2000 : 500;
-
-  let cap = s.dailyLimit || 350;
-
+  let warmupCap = s.dailyLimit || 350;
   if (s.warmupEnabled) {
-    const tier = TIERS.find(t => s.warmupDay <= t.maxDay);
-    if (tier) cap = Math.min(tier.limit, cap);
+    const tier = WARMUP_TIERS.find(t => s.warmupDay <= t.maxDay);
+    if (tier) warmupCap = Math.min(tier.limit, s.dailyLimit || 350);
   }
-
-  return Math.min(providerCap, cap);
+  return Math.min(providerCap, warmupCap, s.dailyLimit || 350);
 }
 
 /**
- * Pick next sender (strict sequential).
- * Falls back to "least used" if all batch-full.
+ * ⚡ FIXED — No more false "all capped" alarms
+ * Picks next sender by rotationOrder with available capacity.
+ * Returns null ONLY if truly no sender available.
  */
 export async function pickNextSenderStrict(opts: { batchLimit?: number } = {}) {
-  const batchLimit = Math.max(1, opts.batchLimit ?? DEFAULT_BATCH);
+  const batchLimit = Math.max(1, opts.batchLimit ?? DEFAULT_BATCH_LIMIT);
 
   const senders = await prisma.senderAccount.findMany({
     where: {
@@ -41,45 +34,39 @@ export async function pickNextSenderStrict(opts: { batchLimit?: number } = {}) {
       refreshToken: { not: null },
       isActive: true,
     },
-    orderBy: [
-      { rotationOrder: 'asc' },
-      { createdAt: 'asc' },
-    ],
+    orderBy: [{ rotationOrder: 'asc' }, { createdAt: 'asc' }],
   });
 
   if (senders.length === 0) return null;
 
-  // 1st pass: find sender with batchCount < batchLimit AND under daily cap
+  // Find first sender with room
   for (const s of senders) {
     const cap = effectiveCap(s);
     if (s.sentToday >= cap) continue;
     if (s.batchCount < batchLimit) return s;
   }
 
-  // All batch-full → reset batches for anyone under cap
-  const reset = await prisma.senderAccount.updateMany({
+  // All batch-full — reset batch counts and pick first available
+  await prisma.senderAccount.updateMany({
     where: {
       status: 'CONNECTED',
-      refreshToken: { not: null },
       isActive: true,
+      refreshToken: { not: null },
     },
     data: { batchCount: 0 },
   });
 
-  if (reset.count === 0) return null;
-
-  // 2nd pass after reset
   const fresh = await prisma.senderAccount.findMany({
     where: { status: 'CONNECTED', refreshToken: { not: null }, isActive: true },
     orderBy: [{ rotationOrder: 'asc' }, { createdAt: 'asc' }],
   });
 
   for (const s of fresh) {
-    const cap = effectiveCap(s);
-    if (s.sentToday < cap) return s;
+    if (s.sentToday < effectiveCap(s)) return s;
   }
 
-  return null; // truly all capped
+  // Truly all capped — returns null
+  return null;
 }
 
 export async function markSenderUsed(senderId: string) {
@@ -94,11 +81,10 @@ export async function markSenderUsed(senderId: string) {
 }
 
 export async function resetDailyCounters() {
-  const startOfDay = new Date();
-  startOfDay.setHours(0, 0, 0, 0);
-
+  const sod = new Date();
+  sod.setHours(0, 0, 0, 0);
   const r = await prisma.senderAccount.updateMany({
-    where: { lastResetAt: { lt: startOfDay } },
+    where: { lastResetAt: { lt: sod } },
     data: { sentToday: 0, batchCount: 0, lastResetAt: new Date() },
   });
   return r.count;
@@ -112,15 +98,15 @@ export async function getRotationState() {
       id: true, email: true, sentToday: true, dailyLimit: true,
       batchCount: true, rotationOrder: true, warmupEnabled: true,
       warmupDay: true, lastSuccessAt: true, reputationScore: true,
-      isActive: true, status: true,
     },
   });
 
-  // Current sender = first who can send
   let currentSender: string | null = null;
   for (const s of senders) {
-    const cap = effectiveCap({ ...s, email: s.email });
-    if (s.sentToday < cap) { currentSender = s.email; break; }
+    if (s.sentToday < effectiveCap(s) && s.batchCount < 1) {
+      currentSender = s.email;
+      break;
+    }
   }
 
   return { senders, currentSender };
