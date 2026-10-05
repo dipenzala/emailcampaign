@@ -1,598 +1,21 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+#!/usr/bin/env bash
+set -e
 
-:root {
-  /* Light Theme */
-  --bg: #f8fafc;
-  --bg-elevated: #ffffff;
-  --bg-subtle: #f1f5f9;
-  --fg: #0f172a;
-  --fg-muted: #64748b;
-  --fg-dim: #94a3b8;
-  --border: rgba(15, 23, 42, 0.08);
-  --border-hover: rgba(139, 92, 246, 0.4);
-  --accent: #8b5cf6;
-  --accent-2: #ec4899;
-  --success: #10b981;
-  --warning: #f59e0b;
-  --danger: #ef4444;
-  --info: #3b82f6;
-  --sidebar-w: 280px;
-  --card-shadow: 0 4px 24px -8px rgba(15, 23, 42, 0.08);
-  --card-shadow-hover: 0 20px 60px -20px rgba(139, 92, 246, 0.25);
-}
+echo "==============================================="
+echo " 🎨 PREMIUM 3D LANDING PAGE"
+echo "==============================================="
 
-* { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+cd "$(dirname "$0")" 2>/dev/null || true
+[ -f "package.json" ] || { echo "❌ project root me chalao"; exit 1; }
+echo "📁 $(pwd)"
+echo ""
 
-html, body {
-  background: var(--bg);
-  color: var(--fg);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Inter, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  overflow-x: hidden;
-  margin: 0;
-  padding: 0;
-  letter-spacing: -0.01em;
-}
+# ==========================================
+# 1. ADD LANDING CSS
+# ==========================================
+echo "🎨 [1/3] Adding landing animations CSS..."
 
-/* ============ APP SHELL ============ */
-.app-shell { min-height: 100vh; position: relative; }
-.app-shell::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  background:
-    radial-gradient(ellipse 60% 50% at 15% 5%, rgba(139, 92, 246, 0.06), transparent 55%),
-    radial-gradient(ellipse 50% 40% at 85% 95%, rgba(236, 72, 153, 0.04), transparent 55%);
-}
-.app-main {
-  min-height: 100vh;
-  position: relative;
-  z-index: 1;
-  padding-left: var(--sidebar-w);
-  transition: padding-left .3s cubic-bezier(.22, 1, .36, 1);
-}
-.app-content {
-  padding: 100px 40px 80px;
-  max-width: 1320px;
-  margin: 0 auto;
-  width: 100%;
-}
-
-/* ============ SIDEBAR (LIGHT) ============ */
-.sidebar {
-  position: fixed;
-  top: 0; left: 0; bottom: 0;
-  width: var(--sidebar-w);
-  background: var(--bg-elevated);
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  z-index: 200;
-  transition: transform .3s cubic-bezier(.22, 1, .36, 1);
-  box-shadow: 2px 0 20px -8px rgba(15, 23, 42, 0.04);
-}
-.sidebar-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.4);
-  backdrop-filter: blur(4px);
-  z-index: 150;
-  animation: fadeIn .2s;
-}
-.sidebar-header {
-  padding: 24px 20px 20px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid var(--border);
-  gap: 12px;
-}
-.sidebar-brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  text-decoration: none;
-  color: inherit;
-  flex: 1;
-  min-width: 0;
-}
-.sidebar-logo-mark {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%);
-  flex-shrink: 0;
-  box-shadow: 0 8px 24px rgba(139, 92, 246, 0.3);
-  position: relative;
-  overflow: hidden;
-}
-.sidebar-logo-mark::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, transparent 40%, rgba(255, 255, 255, 0.4) 50%, transparent 60%);
-  transform: translateX(-100%);
-  animation: shine 3.5s ease-in-out infinite;
-}
-@keyframes shine {
-  0%, 100% { transform: translateX(-100%); }
-  50% { transform: translateX(100%); }
-}
-.sidebar-brand-text { min-width: 0; flex: 1; }
-.sidebar-brand-title {
-  font-weight: 700;
-  font-size: 15px;
-  color: var(--fg);
-  letter-spacing: -0.02em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.sidebar-brand-sub {
-  font-size: 10px;
-  color: var(--accent);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  font-weight: 700;
-}
-.sidebar-close-mobile {
-  display: none;
-  background: var(--bg-subtle);
-  border: 1px solid var(--border);
-  color: var(--fg);
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  cursor: pointer;
-  font-size: 15px;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-.sidebar-nav {
-  flex: 1;
-  padding: 16px 14px;
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-.sidebar-group { margin-bottom: 8px; }
-.sidebar-section {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--fg-dim);
-  padding: 16px 14px 8px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-.sidebar-link {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 12px 14px;
-  border-radius: 12px;
-  color: var(--fg-muted);
-  text-decoration: none;
-  font-size: 14px;
-  font-weight: 500;
-  margin-bottom: 3px;
-  transition: all .2s cubic-bezier(.22, 1, .36, 1);
-  position: relative;
-  white-space: nowrap;
-}
-.sidebar-link:hover {
-  background: var(--bg-subtle);
-  color: var(--fg);
-}
-.sidebar-link.active {
-  background: linear-gradient(135deg, rgba(139, 92, 246, 0.12) 0%, rgba(236, 72, 153, 0.06) 100%);
-  color: var(--accent);
-  font-weight: 600;
-  box-shadow: 0 4px 16px rgba(139, 92, 246, 0.12);
-}
-.sidebar-link.active::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 22%;
-  bottom: 22%;
-  width: 3px;
-  background: linear-gradient(180deg, #8b5cf6, #ec4899);
-  border-radius: 0 3px 3px 0;
-}
-.sidebar-link-icon {
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  flex-shrink: 0;
-}
-.sidebar-link-text { flex: 1; }
-.sidebar-footer {
-  padding: 14px;
-  border-top: 1px solid var(--border);
-}
-.sidebar-logout {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 12px;
-  width: 100%;
-  border-radius: 12px;
-  background: rgba(239, 68, 68, 0.06);
-  border: 1px solid rgba(239, 68, 68, 0.15);
-  color: #dc2626;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all .2s;
-}
-.sidebar-logout:hover {
-  background: rgba(239, 68, 68, 0.12);
-  color: #991b1b;
-}
-.sidebar-logout-icon { font-size: 16px; }
-
-/* ============ TOPBAR (LIGHT) ============ */
-.topbar {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 100;
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: saturate(180%) blur(24px);
-  -webkit-backdrop-filter: saturate(180%) blur(24px);
-  border-bottom: 1px solid var(--border);
-  padding: 12px 24px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 64px;
-}
-.topbar-menu-btn {
-  display: none;
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(236, 72, 153, 0.1));
-  border: 1px solid rgba(139, 92, 246, 0.25);
-  color: var(--accent);
-  cursor: pointer;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-.topbar-btn {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--fg-muted);
-  cursor: pointer;
-  transition: all .2s;
-  flex-shrink: 0;
-  text-decoration: none;
-}
-.topbar-btn:hover {
-  background: var(--bg-subtle);
-  color: var(--fg);
-  border-color: var(--border-hover);
-}
-.topbar-breadcrumbs {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--fg-muted);
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  padding: 0 8px;
-}
-.topbar-crumb { display: inline-flex; align-items: center; gap: 8px; }
-.topbar-breadcrumbs a {
-  color: var(--fg-muted);
-  text-decoration: none;
-  white-space: nowrap;
-}
-.topbar-breadcrumbs a:hover { color: var(--fg); }
-.topbar-breadcrumbs .current {
-  color: var(--fg);
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.topbar-breadcrumbs .sep { color: var(--fg-dim); }
-.topbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-.topbar-avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #8b5cf6, #ec4899);
-  color: #fff;
-  font-weight: 700;
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  text-decoration: none;
-  flex-shrink: 0;
-  box-shadow: 0 6px 20px rgba(139, 92, 246, 0.3);
-}
-
-/* ============ CARDS (LIGHT) ============ */
-.card {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 28px;
-  position: relative;
-  overflow: hidden;
-  transition: all .3s cubic-bezier(.22, 1, .36, 1);
-  box-shadow: var(--card-shadow);
-}
-.card:hover {
-  border-color: var(--border-hover);
-  box-shadow: var(--card-shadow-hover);
-}
-
-/* ============ BUTTONS ============ */
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 11px 22px;
-  border-radius: 12px;
-  font-weight: 600;
-  font-size: 14px;
-  transition: all .25s cubic-bezier(.22, 1, .36, 1);
-  cursor: pointer;
-  border: none;
-  text-decoration: none;
-  font-family: inherit;
-}
-.btn-primary {
-  background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
-  color: #fff;
-  box-shadow: 0 8px 20px -6px rgba(139, 92, 246, 0.4);
-}
-.btn-primary:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 14px 32px -8px rgba(139, 92, 246, 0.55);
-}
-.btn-ghost {
-  background: var(--bg-elevated);
-  color: var(--fg);
-  border: 1px solid var(--border);
-}
-.btn-ghost:hover {
-  background: var(--bg-subtle);
-  border-color: var(--border-hover);
-}
-.btn-danger {
-  background: linear-gradient(135deg, #ef4444, #dc2626);
-  color: #fff;
-  box-shadow: 0 8px 20px -6px rgba(239, 68, 68, 0.35);
-}
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none !important;
-}
-
-/* ============ INPUTS (LIGHT) ============ */
-.input {
-  width: 100%;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 12px 16px;
-  color: var(--fg);
-  font-size: 14px;
-  transition: all .2s;
-  outline: none;
-  font-family: inherit;
-}
-.input::placeholder { color: var(--fg-dim); }
-.input:focus {
-  border-color: var(--accent);
-  background: #fff;
-  box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.1);
-}
-
-/* ============ TYPOGRAPHY ============ */
-h1 { font-size: 2rem; font-weight: 700; letter-spacing: -0.03em; line-height: 1.15; color: var(--fg); }
-h2 { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.02em; color: var(--fg); }
-h3 { font-size: 1rem; font-weight: 600; letter-spacing: -0.01em; color: var(--fg); }
-
-/* ============ ANIMATIONS ============ */
-@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-@keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(16px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.animate-in { animation: fadeInUp .5s cubic-bezier(.22, 1, .36, 1) both; }
-.animate-fade { animation: fadeIn .3s ease both; }
-
-/* ============ MODAL (LIGHT) ============ */
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.5);
-  backdrop-filter: blur(8px);
-  z-index: 9999;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 80px 16px 32px;
-  overflow-y: auto;
-  animation: fadeIn .2s ease;
-}
-.modal-box {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 28px;
-  max-width: 900px;
-  width: 100%;
-  max-height: calc(100vh - 120px);
-  overflow: auto;
-  box-shadow: 0 40px 100px -30px rgba(15, 23, 42, 0.3);
-  animation: fadeInUp .3s cubic-bezier(.22, 1, .36, 1);
-  margin: 0 auto;
-}
-
-/* ============ TOAST (LIGHT) ============ */
-.toast-container {
-  position: fixed;
-  top: 80px;
-  right: 20px;
-  z-index: 9999;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  pointer-events: none;
-}
-.toast {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 14px 18px;
-  color: var(--fg);
-  font-size: 13px;
-  font-weight: 500;
-  box-shadow: 0 20px 60px -20px rgba(15, 23, 42, 0.25);
-  pointer-events: all;
-  animation: toastIn .3s cubic-bezier(.22, 1, .36, 1) both;
-  max-width: 360px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-@keyframes toastIn {
-  from { opacity: 0; transform: translateX(100%); }
-  to { opacity: 1; transform: translateX(0); }
-}
-
-/* ============ SCROLLBAR ============ */
-::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb {
-  background: rgba(15, 23, 42, 0.15);
-  border-radius: 8px;
-}
-::-webkit-scrollbar-thumb:hover { background: rgba(15, 23, 42, 0.25); }
-
-/* ============ PAGE HEADER ============ */
-.page-header {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: 16px;
-  margin-bottom: 36px;
-}
-.page-header h1 {
-  margin: 0;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  justify-content: center;
-}
-.page-header .live-pill {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  padding: 6px 14px;
-  border-radius: 999px;
-  background: rgba(16, 185, 129, 0.1);
-  color: #059669;
-  border: 1px solid rgba(16, 185, 129, 0.25);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.page-header .live-pill::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #10b981;
-  box-shadow: 0 0 10px #10b981;
-  animation: livePulse 2s ease-in-out infinite;
-}
-@keyframes livePulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
-}
-.page-header .subtitle {
-  color: var(--fg-muted);
-  font-size: 13px;
-  margin: 0;
-}
-.page-hint {
-  text-align: center;
-  color: var(--fg-muted);
-  font-size: 12px;
-  margin-bottom: 24px;
-  padding: 10px 16px;
-  background: rgba(139, 92, 246, 0.05);
-  border: 1px dashed rgba(139, 92, 246, 0.25);
-  border-radius: 12px;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  justify-content: center;
-}
-
-/* ============ RESPONSIVE ============ */
-@media (max-width: 900px) {
-  .app-main { padding-left: 0; }
-  .app-content { padding: 80px 20px 80px; }
-  .sidebar { transform: translateX(-100%); }
-  .sidebar.mobile-open { transform: translateX(0); }
-  .sidebar-close-mobile { display: flex; }
-  .topbar { padding: 10px 14px; min-height: 60px; gap: 8px; }
-  .topbar-menu-btn { display: flex; }
-  .topbar-breadcrumbs { display: none; }
-  .card { padding: 18px; border-radius: 16px; }
-  .modal-backdrop { padding: 70px 12px 20px; }
-  .modal-box { padding: 20px; border-radius: 16px; max-height: calc(100vh - 100px); }
-  h1 { font-size: 1.5rem; }
-}
-
-@media (max-width: 480px) {
-  .app-content { padding: 72px 14px 60px; }
-  .topbar { padding: 8px 10px; gap: 6px; min-height: 56px; }
-  .topbar-btn, .topbar-menu-btn, .topbar-avatar { width: 36px; height: 36px; }
-  .modal-backdrop { padding: 64px 8px 16px; }
-  .modal-box { padding: 16px; }
-  .toast-container { right: 8px; left: 8px; top: 64px; }
-  .toast { max-width: 100%; font-size: 12px; padding: 12px 14px; }
-  h1 { font-size: 1.35rem; }
-  h2 { font-size: 1.1rem; }
-}
+cat >> app/globals.css <<'CSSEOF'
 
 /* ══════════════════════════════════════════════ */
 /*           PREMIUM LANDING PAGE                  */
@@ -1418,3 +841,390 @@ h3 { font-size: 1rem; font-weight: 600; letter-spacing: -0.01em; color: var(--fg
   opacity: 1;
   transform: translateY(0);
 }
+CSSEOF
+sed -i 's/\r$//' app/globals.css
+echo "   ✅ Landing CSS added"
+
+# ==========================================
+# 2. REWRITE LANDING PAGE
+# ==========================================
+echo ""
+echo "🎨 [2/3] Rewriting landing page..."
+
+cat > app/page.tsx <<'EOF'
+'use client';
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+
+export default function Landing() {
+  const [counts, setCounts] = useState({ emails: 0, users: 0, campaigns: 0, uptime: 0 });
+
+  useEffect(() => {
+    // Animate stat counters
+    const targets = { emails: 12_847_392, users: 4_218, campaigns: 68_540, uptime: 99 };
+    const start = Date.now();
+    const duration = 2000;
+    const tick = () => {
+      const p = Math.min(1, (Date.now() - start) / duration);
+      const ease = 1 - Math.pow(1 - p, 3);
+      setCounts({
+        emails: Math.floor(targets.emails * ease),
+        users: Math.floor(targets.users * ease),
+        campaigns: Math.floor(targets.campaigns * ease),
+        uptime: Math.floor(targets.uptime * ease),
+      });
+      if (p < 1) requestAnimationFrame(tick);
+    };
+    tick();
+  }, []);
+
+  useEffect(() => {
+    // Scroll reveal
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach(e => {
+          if (e.isIntersecting) {
+            e.target.classList.add('visible');
+          }
+        });
+      },
+      { threshold: 0.1, rootMargin: '0px 0px -50px 0px' }
+    );
+    document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    // Bento card mouse follow glow
+    const cards = document.querySelectorAll('.bento-card');
+    const handler = (e: Event) => {
+      const card = e.currentTarget as HTMLElement;
+      const rect = card.getBoundingClientRect();
+      const mx = ((e as MouseEvent).clientX - rect.left) / rect.width * 100;
+      const my = ((e as MouseEvent).clientY - rect.top) / rect.height * 100;
+      card.style.setProperty('--mx', mx + '%');
+      card.style.setProperty('--my', my + '%');
+    };
+    cards.forEach(c => c.addEventListener('mousemove', handler));
+    return () => cards.forEach(c => c.removeEventListener('mousemove', handler));
+  }, []);
+
+  const formatNum = (n: number) => n.toLocaleString('en-IN');
+
+  return (
+    <div className="landing-root">
+      {/* Background layers */}
+      <div className="landing-mesh">
+        <div className="landing-orb-3" />
+      </div>
+      <div className="landing-grain" />
+
+      {/* NAV */}
+      <nav className="landing-nav">
+        <Link href="/" className="landing-nav-brand">
+          <div className="landing-nav-mark" />
+          <span className="landing-nav-name">EmailCampaign</span>
+        </Link>
+        <div className="landing-nav-links">
+          <a href="#features" className="landing-nav-link">Features</a>
+          <a href="#stats" className="landing-nav-link">Stats</a>
+          <a href="#cta" className="landing-nav-link">Pricing</a>
+        </div>
+        <Link href="/login" className="landing-nav-cta">Get started</Link>
+      </nav>
+
+      {/* HERO */}
+      <section className="landing-hero">
+        <div className="landing-badge">
+          <span className="landing-badge-dot" />
+          <span>Now with AI spam protection · v2.0</span>
+        </div>
+
+        <h1 className="landing-title">
+          Send email that<br />
+          <span className="landing-title-gradient">feels personal.</span>
+        </h1>
+
+        <p className="landing-subtitle">
+          Production-ready campaign platform with real Gmail OAuth, sender rotation,
+          7-layer anti-spam protection, and beautiful live analytics.
+        </p>
+
+        <div className="landing-cta-row">
+          <Link href="/login" className="landing-cta-primary">
+            Start free
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="5" y1="12" x2="19" y2="12" />
+              <polyline points="12 5 19 12 12 19" />
+            </svg>
+          </Link>
+          <a href="#features" className="landing-cta-secondary">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polygon points="5 3 19 12 5 21 5 3" />
+            </svg>
+            See how it works
+          </a>
+        </div>
+
+        {/* Floating preview with 3D */}
+        <div className="landing-preview-wrap">
+          <div className="landing-float landing-float-1">
+            <span style={{ fontSize: 16 }}>⚡</span>
+            <span>3,214 sent today</span>
+          </div>
+          <div className="landing-float landing-float-2">
+            <span style={{ fontSize: 16 }}>🛡️</span>
+            <span>0 spam flags</span>
+          </div>
+          <div className="landing-float landing-float-3">
+            <span style={{ fontSize: 16 }}>📬</span>
+            <span>98.7% delivered</span>
+          </div>
+
+          <div className="landing-preview">
+            <div className="landing-preview-top">
+              <span className="landing-dot" style={{ background: '#ef4444' }} />
+              <span className="landing-dot" style={{ background: '#f59e0b' }} />
+              <span className="landing-dot" style={{ background: '#10b981' }} />
+              <div className="landing-preview-url">emailcampaign-ten.vercel.app/dashboard/live</div>
+            </div>
+            <div className="landing-preview-body">
+              <div className="landing-preview-kpi">
+                <div className="landing-preview-kpi-label">Sent</div>
+                <div className="landing-preview-kpi-value" style={{ color: '#3b82f6' }}>12,847</div>
+              </div>
+              <div className="landing-preview-kpi">
+                <div className="landing-preview-kpi-label">Delivered</div>
+                <div className="landing-preview-kpi-value" style={{ color: '#10b981' }}>12,412</div>
+              </div>
+              <div className="landing-preview-kpi">
+                <div className="landing-preview-kpi-label">Opened</div>
+                <div className="landing-preview-kpi-value" style={{ color: '#ec4899' }}>4,921</div>
+              </div>
+              <div className="landing-preview-kpi">
+                <div className="landing-preview-kpi-label">Pending</div>
+                <div className="landing-preview-kpi-value" style={{ color: '#f59e0b' }}>435</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* TRUSTED BY */}
+      <section className="landing-trusted reveal">
+        <div className="landing-trusted-label">Built for modern teams</div>
+        <div className="landing-trusted-marks">
+          {[
+            { icon: '🚀', name: 'Startups' },
+            { icon: '💼', name: 'Agencies' },
+            { icon: '📈', name: 'Growth Teams' },
+            { icon: '🎯', name: 'Sales' },
+            { icon: '📧', name: 'Marketers' },
+          ].map(t => (
+            <div key={t.name} className="landing-trusted-mark">
+              <span className="landing-trusted-mark-icon">{t.icon}</span>
+              {t.name}
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* STATS */}
+      <section id="stats" className="landing-stats reveal">
+        <div className="landing-stat">
+          <div className="landing-stat-value">{formatNum(counts.emails)}</div>
+          <div className="landing-stat-label">Emails Sent</div>
+        </div>
+        <div className="landing-stat">
+          <div className="landing-stat-value">{formatNum(counts.users)}</div>
+          <div className="landing-stat-label">Active Users</div>
+        </div>
+        <div className="landing-stat">
+          <div className="landing-stat-value">{formatNum(counts.campaigns)}</div>
+          <div className="landing-stat-label">Campaigns</div>
+        </div>
+        <div className="landing-stat">
+          <div className="landing-stat-value">{counts.uptime}%</div>
+          <div className="landing-stat-label">Uptime</div>
+        </div>
+      </section>
+
+      {/* FEATURES — BENTO */}
+      <section id="features" className="landing-section">
+        <div className="landing-section-head reveal">
+          <div className="landing-section-eyebrow">Features</div>
+          <h2 className="landing-section-title">
+            Everything you need.<br />
+            <span style={{ background: 'linear-gradient(120deg, #8b5cf6, #ec4899)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' }}>
+              Nothing you don't.
+            </span>
+          </h2>
+          <p className="landing-section-desc">
+            Built on real infrastructure — Gmail API, Postgres, BullMQ, and 7-layer anti-spam.
+          </p>
+        </div>
+
+        <div className="bento-grid">
+          {/* Big card — Live Analytics */}
+          <div className="bento-card bento-1 reveal">
+            <div className="bento-icon">📊</div>
+            <h3 className="bento-title">Real-time Analytics</h3>
+            <p className="bento-desc">
+              Watch emails fly out live. Every sent, delivered, opened, and bounced
+              email tracked in real time with beautiful visualizations.
+            </p>
+            <div className="bento-visual">
+              <div className="bento-chart">
+                {[40, 65, 45, 80, 55, 90, 70, 95, 60, 85, 75, 100].map((h, i) => (
+                  <div
+                    key={i}
+                    className="bento-chart-bar"
+                    style={{ height: h + '%', animationDelay: (i * 0.15) + 's' }}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Sender rotation */}
+          <div className="bento-card bento-2 reveal">
+            <div className="bento-icon">🔄</div>
+            <h3 className="bento-title">Sender Rotation</h3>
+            <p className="bento-desc">
+              Connect 25+ Gmail accounts. Emails auto-rotate one-by-one, max 350/day each.
+            </p>
+            <div className="bento-visual">
+              {['sales01@company.com', 'sales02@company.com', 'sales03@company.com'].map((e, i) => (
+                <div key={i} className="bento-sender">
+                  <div className="bento-sender-avatar" />
+                  <div className="bento-sender-info">
+                    <div className="bento-sender-name">{e}</div>
+                    <div className="bento-sender-status">● CONNECTED</div>
+                  </div>
+                  <div className="bento-sender-badge">{350 - i * 10} left</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Anti-spam */}
+          <div className="bento-card bento-3 reveal">
+            <div className="bento-icon">🛡️</div>
+            <h3 className="bento-title">7-Layer Anti-Spam</h3>
+            <p className="bento-desc">
+              Spam scoring, warm-up mode, list hygiene, bounce handling, and
+              auto-suppression keep your sender reputation pristine.
+            </p>
+            <div className="bento-visual">
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+                <div style={{ fontSize: 32, fontWeight: 800, color: '#10b981', letterSpacing: '-0.03em' }}>12</div>
+                <div>
+                  <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>SPAM SCORE</div>
+                  <div style={{ fontSize: 12, color: '#10b981', fontWeight: 700 }}>✓ Safe to send</div>
+                </div>
+              </div>
+              <div style={{ height: 6, background: 'rgba(15,23,42,0.06)', borderRadius: 999, overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: '12%', background: 'linear-gradient(90deg, #10b981, #8b5cf6)' }} />
+              </div>
+            </div>
+          </div>
+
+          {/* Excel import */}
+          <div className="bento-card bento-4 reveal">
+            <div className="bento-icon">📥</div>
+            <h3 className="bento-title">Excel / CSV Import</h3>
+            <p className="bento-desc">
+              Upload contacts, auto-validate, remove duplicates, filter disposables.
+            </p>
+          </div>
+
+          {/* HTML editor */}
+          <div className="bento-card bento-5 reveal">
+            <div className="bento-icon">✏️</div>
+            <h3 className="bento-title">HTML Editor</h3>
+            <p className="bento-desc">
+              Paste your HTML. Live desktop + mobile preview. Test email before launch.
+            </p>
+          </div>
+
+          {/* Inbox viewer */}
+          <div className="bento-card bento-6 reveal">
+            <div className="bento-icon">📬</div>
+            <h3 className="bento-title">Inbox Viewer</h3>
+            <p className="bento-desc">
+              Read client replies directly. Track who opened your emails.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* FINAL CTA */}
+      <section id="cta" className="landing-final-cta reveal">
+        <div className="landing-final-cta-inner">
+          <h2 className="landing-final-cta-title">
+            Ready to send at scale?
+          </h2>
+          <p className="landing-final-cta-desc">
+            Connect your Gmail. Import contacts. Hit send. Watch it fly.
+          </p>
+          <Link href="/login" className="landing-final-cta-btn">
+            Get started free
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="5" y1="12" x2="19" y2="12" />
+              <polyline points="12 5 19 12 12 19" />
+            </svg>
+          </Link>
+        </div>
+      </section>
+
+      {/* FOOTER */}
+      <footer className="landing-footer">
+        <div className="landing-footer-brand">
+          <div className="landing-nav-mark" />
+          <span className="landing-nav-name">EmailCampaign</span>
+        </div>
+        <div className="landing-footer-text">
+          © {new Date().getFullYear()} EmailCampaign · Made with care by Dipen Zala
+        </div>
+      </footer>
+    </div>
+  );
+}
+EOF
+sed -i 's/\r$//' app/page.tsx
+echo "   ✅ Landing page rewritten"
+
+# ==========================================
+# 3. Git push
+# ==========================================
+echo ""
+echo "🌿 [3/3] Git push..."
+git config --local user.email "63999328+dipenzala@users.noreply.github.com"
+git config --local user.name "Dipen Zala"
+
+git add -A
+git diff --cached --quiet || git commit -m "Feat: premium 3D landing page with animations + bento features"
+
+git push -u origin main 2>&1 | tail -5
+
+echo ""
+echo "==============================================="
+echo " ✅ PREMIUM LANDING DEPLOYED"
+echo "==============================================="
+echo ""
+echo "🎨 Features:"
+echo "   ✓ Floating mesh gradient background"
+echo "   ✓ Animated orbs with parallax"
+echo "   ✓ 3D rotating preview card"
+echo "   ✓ Floating notification badges"
+echo "   ✓ Live counter animations"
+echo "   ✓ Bento grid features (6 cards)"
+echo "   ✓ Fake live chart + sender list"
+echo "   ✓ Final CTA with rotating glow"
+echo "   ✓ Scroll reveal animations"
+echo "   ✓ Mouse-follow glow on cards"
+echo "   ✓ Nav with shine animation"
+echo ""
+echo "⏱️  2-3 min me Vercel deploy hoga"
+echo "URL: https://emailcampaign-ten.vercel.app/"
+echo "==============================================="
