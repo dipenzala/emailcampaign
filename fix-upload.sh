@@ -1,3 +1,23 @@
+#!/usr/bin/env bash
+set -e
+
+echo "==============================================="
+echo " 🔧 FIX: Upload API + All Contact Routes"
+echo "==============================================="
+
+cd "$(dirname "$0")" 2>/dev/null || true
+[ -f "package.json" ] || { echo "❌ project root me chalao"; exit 1; }
+echo "📁 $(pwd)"
+echo ""
+
+# ==========================================
+# 1. BULLETPROOF UPLOAD API
+# ==========================================
+echo "📝 [1/4] Rewriting upload API..."
+
+mkdir -p app/api/contacts/upload
+
+cat > app/api/contacts/upload/route.ts <<'EOF'
 import { NextResponse } from 'next/server';
 import * as XLSX from 'xlsx';
 import { prisma } from '@/lib/prisma';
@@ -180,3 +200,106 @@ export async function POST(req: Request) {
     return jsonError(err?.message || 'Upload failed', 500);
   }
 }
+EOF
+sed -i 's/\r$//' app/api/contacts/upload/route.ts
+echo "   ✅ Upload API bulletproof"
+
+# ==========================================
+# 2. ENSURE email-validator exists
+# ==========================================
+echo "📝 [2/4] Ensuring email-validator..."
+
+mkdir -p lib
+
+if [ ! -f "lib/email-validator.ts" ]; then
+  cat > lib/email-validator.ts <<'EOF'
+export function isValidEmail(e: string): boolean {
+  if (!e) return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e.trim());
+}
+EOF
+  sed -i 's/\r$//' lib/email-validator.ts
+  echo "   ✅ email-validator created"
+else
+  echo "   ✅ email-validator exists"
+fi
+
+# ==========================================
+# 3. Ensure spam-checker exists
+# ==========================================
+if [ ! -f "lib/spam-checker.ts" ]; then
+  cat > lib/spam-checker.ts <<'EOF'
+const DISPOSABLE = new Set([
+  'tempmail.com','guerrillamail.com','mailinator.com','10minutemail.com',
+  'throwaway.email','trashmail.com','yopmail.com','sharklasers.com',
+  'temp-mail.org','getnada.com','fakeinbox.com','maildrop.cc',
+]);
+const ROLES = new Set([
+  'admin','info','support','sales','contact','help',
+  'noreply','no-reply','postmaster','webmaster','abuse',
+  'billing','marketing','office','hello','team',
+]);
+
+export function checkEmailHygiene(email: string) {
+  const [local, domain] = String(email).toLowerCase().split('@');
+  const isRole = ROLES.has(local);
+  const isDisp = DISPOSABLE.has(domain);
+  let score = 100;
+  if (isRole) score -= 20;
+  if (isDisp) score -= 60;
+  return { isRoleAccount: isRole, isDisposable: isDisp, score: Math.max(0, score) };
+}
+
+export function checkEmail(opts: { subject: string; html: string; fromEmail: string }) {
+  const issues: any[] = [];
+  let score = 0;
+  const add = (severity: string, category: string, message: string, points: number) => {
+    issues.push({ severity, category, message, points });
+    score += points;
+  };
+  if (!opts.subject || !opts.subject.trim()) add('high','subject','Subject empty',20);
+  const html = opts.html || '';
+  if (!/unsubscribe/i.test(html)) add('high','compliance','No unsubscribe link',25);
+  if (/<script[\s>]/i.test(html)) add('high','html','Contains <script> tag',30);
+  const finalScore = Math.min(100, score);
+  return { score: finalScore, issues, ok: finalScore < 30, warning: finalScore >= 30 && finalScore < 50, blocked: finalScore >= 50 };
+}
+EOF
+  sed -i 's/\r$//' lib/spam-checker.ts
+  echo "   ✅ spam-checker created"
+else
+  echo "   ✅ spam-checker exists"
+fi
+
+# ==========================================
+# 4. Git push
+# ==========================================
+echo ""
+echo "🌿 [4/4] Git push..."
+git config --local user.email "63999328+dipenzala@users.noreply.github.com"
+git config --local user.name "Dipen Zala"
+
+git add -A
+git diff --cached --quiet || git commit -m "Fix: bulletproof upload API — always returns JSON, never crashes"
+
+git push -u origin main 2>&1 | tail -5
+
+echo ""
+echo "==============================================="
+echo " ✅ UPLOAD FIX DEPLOYED"
+echo "==============================================="
+echo ""
+echo "🎯 What changed:"
+echo "   ✓ Every error returns JSON (never empty response)"
+echo "   ✓ File size, format, sheet validation"
+echo "   ✓ Empty file detection"
+echo "   ✓ Per-row error handling"
+echo "   ✓ Partial DB save (if some rows fail)"
+echo ""
+echo "⏱️  2-3 min me Vercel deploy hoga"
+echo ""
+echo "Test karo:"
+echo "   1. Hard refresh (Ctrl+Shift+R)"
+echo "   2. Excel upload karo → JSON response milega"
+echo "   3. Koi bhi error ke saath JSON hi aayega"
+echo "==============================================="
