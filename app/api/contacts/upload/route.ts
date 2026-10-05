@@ -4,278 +4,306 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-function j(data: any, status = 200) {
-  return NextResponse.json(data, { status });
+// ═══════════════════════════════════════════
+// ALWAYS return JSON — never HTML/plain text
+// ═══════════════════════════════════════════
+function ok(data: any) {
+  return NextResponse.json({ success: true, ...data }, { status: 200 });
+}
+function fail(error: string, details?: string, status = 400) {
+  return NextResponse.json(
+    { success: false, error, details: details || null },
+    { status }
+  );
 }
 
-function validEmail(e: string): boolean {
-  return !!e && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e.trim());
+// ═══════════════════════════════════════════
+// Email validation
+// ═══════════════════════════════════════════
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function cleanEmail(v: any): string {
+  if (v === null || v === undefined) return '';
+  let s = String(v).trim();
+  // Remove surrounding quotes
+  s = s.replace(/^["']+|["']+$/g, '').trim();
+  return s.toLowerCase();
 }
 
-const DISPOSABLE = new Set([
-  'tempmail.com','guerrillamail.com','mailinator.com','10minutemail.com',
-  'throwaway.email','trashmail.com','yopmail.com','sharklasers.com',
-  'temp-mail.org','getnada.com','fakeinbox.com','maildrop.cc',
-]);
+function isValidEmail(e: string): boolean {
+  return !!e && EMAIL_RE.test(e);
+}
 
-const ROLES = new Set([
-  'admin','info','support','sales','contact','help','noreply','no-reply',
-  'postmaster','webmaster','abuse','billing','marketing','office','hello','team',
-]);
+// ═══════════════════════════════════════════
+// Header normalization
+// ═══════════════════════════════════════════
+function normalizeHeader(h: string): string {
+  return String(h || '').trim().toLowerCase().replace(/[_\-\s]+/g, '');
+}
 
+function findKey(row: any, candidates: string[]): string | null {
+  if (!row || typeof row !== 'object') return null;
+  const keys = Object.keys(row);
+  for (const c of candidates) {
+    const cn = normalizeHeader(c);
+    for (const k of keys) {
+      if (normalizeHeader(k) === cn) return k;
+    }
+  }
+  return null;
+}
+
+// ═══════════════════════════════════════════
+// CSV parser (handles , ; TAB)
+// ═══════════════════════════════════════════
+function detectDelimiter(text: string): string {
+  const first = text.split(/\r?\n/)[0] || '';
+  const counts = {
+    ',': (first.match(/,/g) || []).length,
+    ';': (first.match(/;/g) || []).length,
+    '\t': (first.match(/\t/g) || []).length,
+  };
+  let best = ',';
+  let max = 0;
+  for (const [d, n] of Object.entries(counts)) {
+    if (n > max) { max = n; best = d; }
+  }
+  return best;
+}
+
+function parseCSVLine(line: string, delim: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let inQuote = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuote) {
+      if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+      else if (ch === '"') inQuote = false;
+      else cur += ch;
+    } else {
+      if (ch === '"') inQuote = true;
+      else if (ch === delim) { out.push(cur); cur = ''; }
+      else cur += ch;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
+function parseCSV(text: string): any[] {
+  const clean = text.replace(/^\uFEFF/, '');
+  const lines = clean.split(/\r?\n/).filter(l => l.trim().length > 0);
+  if (lines.length < 2) return [];
+
+  const delim = detectDelimiter(clean);
+  const headers = parseCSVLine(lines[0], delim).map(h => h.trim());
+  const rows: any[] = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    const vals = parseCSVLine(lines[i], delim);
+    const row: any = {};
+    headers.forEach((h, idx) => {
+      row[h || `col${idx}`] = (vals[idx] ?? '').toString().trim();
+    });
+    rows.push(row);
+  }
+  return rows;
+}
+
+// ═══════════════════════════════════════════
+// MAIN HANDLER
+// ═══════════════════════════════════════════
 export async function POST(req: Request) {
-  console.log('[upload] START');
+  console.log('[upload] === START ===');
 
   try {
+    // ── Parse form data
     let form: FormData;
     try {
       form = await req.formData();
     } catch (e: any) {
-      return j({ ok: false, error: 'Form parse failed: ' + e.message }, 400);
+      return fail('Could not read form data', e.message);
     }
 
-    const file = form.get('file');
-    if (!file || typeof file === 'string') {
-      return j({ ok: false, error: 'No file uploaded' }, 400);
+    const file = form.get('file') as File | null;
+    if (!file) return fail('No file uploaded');
+
+    console.log('[upload] file:', file.name, '| size:', file.size, '| type:', file.type);
+
+    // ── Basic file checks
+    if (file.size === 0) return fail('File is empty (0 bytes)');
+    if (file.size > 15 * 1024 * 1024) return fail('File too large (max 15MB)');
+
+    const name = (file.name || '').toLowerCase();
+    const isCSV = name.endsWith('.csv');
+    const isXLS = name.endsWith('.xlsx') || name.endsWith('.xls');
+
+    if (!isCSV && !isXLS) {
+      return fail('Unsupported file type. Use .xlsx, .xls, or .csv');
     }
 
-    const f = file as File;
-    console.log('[upload] file:', f.name, 'size:', f.size, 'type:', f.type);
-
-    if (f.size === 0) return j({ ok: false, error: 'File empty' }, 400);
-    if (f.size > 10 * 1024 * 1024) return j({ ok: false, error: 'File > 10MB' }, 400);
-
+    // ── Read buffer
     let buf: Buffer;
     try {
-      buf = Buffer.from(await f.arrayBuffer());
+      buf = Buffer.from(await file.arrayBuffer());
     } catch (e: any) {
-      return j({ ok: false, error: 'Read failed: ' + e.message }, 400);
+      return fail('Could not read file content', e.message);
     }
 
-    // Determine file type
-    const lowerName = (f.name || '').toLowerCase();
-    const isCSV = lowerName.endsWith('.csv');
-    const isXLSX = lowerName.endsWith('.xlsx') || lowerName.endsWith('.xls');
-
+    // ── Parse into rows
     let rows: any[] = [];
     let parser = 'unknown';
 
-    // CSV — pure manual parse (no dependency)
     if (isCSV) {
       try {
-        const text = buf.toString('utf-8').replace(/^\uFEFF/, '');
-        const lines = text.split(/\r?\n/).filter(l => l.trim());
-        if (lines.length < 2) return j({ ok: false, error: 'CSV has no data rows' }, 400);
-
-        // Parse header
-        const parseCSVLine = (line: string): string[] => {
-          const out: string[] = [];
-          let cur = '';
-          let inQuote = false;
-          for (let i = 0; i < line.length; i++) {
-            const ch = line[i];
-            if (inQuote) {
-              if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
-              else if (ch === '"') { inQuote = false; }
-              else cur += ch;
-            } else {
-              if (ch === '"') inQuote = true;
-              else if (ch === ',') { out.push(cur.trim()); cur = ''; }
-              else cur += ch;
-            }
-          }
-          out.push(cur.trim());
-          return out;
-        };
-
-        const headers = parseCSVLine(lines[0]);
-        for (let i = 1; i < lines.length; i++) {
-          const vals = parseCSVLine(lines[i]);
-          const row: any = {};
-          headers.forEach((h, idx) => { row[h] = vals[idx] || ''; });
-          rows.push(row);
-        }
-        parser = 'csv-native';
+        rows = parseCSV(buf.toString('utf-8'));
+        parser = 'csv';
       } catch (e: any) {
-        return j({ ok: false, error: 'CSV parse failed: ' + e.message }, 400);
+        return fail('CSV parse failed', e.message);
       }
-    }
-
-    // XLSX — try ExcelJS first, then xlsx
-    if (isXLSX) {
-      let parsed = false;
-
-      // Try 1: ExcelJS
+    } else {
+      // Excel — try XLSX
       try {
-        const ExcelJS = await import('exceljs');
-        const wb = new ExcelJS.Workbook();
-        await wb.xlsx.load(buf as any);
-        const sheet = wb.worksheets[0];
-        if (sheet) {
-          const headerRow = sheet.getRow(1);
-          const headers: string[] = [];
-          headerRow.eachCell((cell: any, col: number) => {
-            headers[col - 1] = String(cell.value ?? '').trim();
-          });
-          sheet.eachRow((row: any, rowNumber: number) => {
-            if (rowNumber === 1) return;
-            const r: any = {};
-            row.eachCell((cell: any, col: number) => {
-              const h = headers[col - 1] || `col${col}`;
-              let v = cell.value;
-              if (v && typeof v === 'object' && 'text' in v) v = v.text;
-              else if (v && typeof v === 'object' && 'result' in v) v = v.result;
-              r[h] = v ?? '';
-            });
-            rows.push(r);
-          });
-          parser = 'exceljs';
-          parsed = true;
-          console.log('[upload] exceljs parsed rows:', rows.length);
-        }
+        const XLSX = await import('xlsx');
+        const wb = XLSX.read(buf, { type: 'buffer' });
+        const sheetName = wb.SheetNames?.[0];
+        if (!sheetName) return fail('Excel file has no worksheets');
+
+        const sheet = wb.Sheets[sheetName];
+        if (!sheet) return fail('Could not read first worksheet');
+
+        rows = XLSX.utils.sheet_to_json(sheet, {
+          defval: '',
+          raw: false,
+        });
+        parser = 'xlsx';
       } catch (e: any) {
-        console.warn('[upload] exceljs failed:', e.message);
-      }
-
-      // Try 2: xlsx (fallback)
-      if (!parsed) {
-        try {
-          const XLSX = await import('xlsx');
-          const wb = XLSX.read(buf, { type: 'buffer' });
-          const sheet = wb.Sheets[wb.SheetNames[0]];
-          rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-          parser = 'xlsx';
-          parsed = true;
-          console.log('[upload] xlsx parsed rows:', rows.length);
-        } catch (e: any) {
-          console.warn('[upload] xlsx failed:', e.message);
-          return j({
-            ok: false,
-            error: 'Excel parser unavailable. Please save your file as CSV and upload again.',
-            details: e.message,
-          }, 400);
-        }
+        console.error('[upload] XLSX parse error:', e.message);
+        return fail('Failed to parse Excel file. Try saving as CSV and uploading again.', e.message);
       }
     }
 
-    if (!rows.length) {
-      return j({ ok: false, error: 'No data rows found. Save as CSV and retry.' }, 400);
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return fail('File has no data rows');
     }
 
-    const totalRows = rows.length;
+    console.log('[upload] parsed', rows.length, 'rows via', parser);
 
-    // Find email column
-    const findEmailKey = (r: any): string | null => {
-      if (!r || typeof r !== 'object') return null;
-      const keys = Object.keys(r);
-      return keys.find(k => /e-?mail/i.test(k)) || keys[0] || null;
-    };
+    // ── Find email column (case-insensitive)
+    const sampleRow = rows[0];
+    const emailKey = findKey(sampleRow, [
+      'email', 'e-mail', 'e_mail', 'email address', 'emailaddress',
+      'mail', 'email id', 'emailid'
+    ]);
 
-    // Process
+    if (!emailKey) {
+      const available = Object.keys(sampleRow || {});
+      return fail(
+        'Email column not found',
+        `Detected columns: ${available.join(', ') || 'none'}. Expected a column named "Email".`
+      );
+    }
+
+    console.log('[upload] email column:', emailKey);
+
+    // ── Name / Company / Phone / City columns (optional)
+    const nameKey = findKey(sampleRow, ['name', 'full name', 'fullname', 'first name', 'firstname']);
+    const companyKey = findKey(sampleRow, ['company', 'organization', 'organisation', 'org', 'business']);
+    const phoneKey = findKey(sampleRow, ['phone', 'mobile', 'contact', 'phone number', 'phonenumber']);
+    const cityKey = findKey(sampleRow, ['city', 'location', 'town']);
+
+    // ── Process rows
     const seen = new Set<string>();
     const valid: any[] = [];
-    const duplicateList: string[] = [];
+    const duplicates: string[] = [];
     const invalidList: { email: string; reason: string }[] = [];
-    let invalid = 0, disposable = 0, roleAccounts = 0;
+    let invalid = 0;
 
-    // Safe suppression
-    let suppressionSet = new Set<string>();
-    try {
-      const { prisma } = await import('@/lib/prisma');
-      const list = await prisma.suppressionList.findMany({ select: { email: true } });
-      suppressionSet = new Set(list.map((s: any) => s.email.toLowerCase()));
-    } catch (e: any) {
-      console.warn('[upload] suppression fetch failed:', e.message);
-    }
+    for (const row of rows) {
+      const raw = row?.[emailKey];
+      const email = cleanEmail(raw);
 
-    for (const r of rows) {
-      if (!r || typeof r !== 'object') { invalid++; continue; }
-      const ek = findEmailKey(r);
-      const rawEmail = ek ? String(r[ek] || '').trim().toLowerCase() : '';
+      if (!email) { invalid++; continue; }
 
-      if (!rawEmail) { invalid++; continue; }
-      if (!validEmail(rawEmail)) {
+      if (!isValidEmail(email)) {
         invalid++;
-        invalidList.push({ email: rawEmail, reason: 'Invalid format' });
-        continue;
-      }
-      if (seen.has(rawEmail)) {
-        duplicateList.push(rawEmail);
-        continue;
-      }
-      seen.add(rawEmail);
-
-      if (suppressionSet.has(rawEmail)) {
-        invalidList.push({ email: rawEmail, reason: 'Suppressed' });
+        invalidList.push({ email, reason: 'Invalid format' });
         continue;
       }
 
-      const [local, domain] = rawEmail.split('@');
-      if (DISPOSABLE.has(domain)) {
-        disposable++;
-        invalidList.push({ email: rawEmail, reason: 'Disposable' });
+      if (seen.has(email)) {
+        duplicates.push(email);
         continue;
       }
-      const isRole = ROLES.has(local);
-      if (isRole) roleAccounts++;
-
-      const getField = (names: string[]) => {
-        for (const n of names) {
-          for (const k of Object.keys(r)) {
-            if (k.toLowerCase().trim() === n) return String(r[k] || '');
-          }
-        }
-        return '';
-      };
+      seen.add(email);
 
       valid.push({
-        email: rawEmail,
-        name: getField(['name', 'full name', 'first name']),
-        company: getField(['company', 'organization', 'org']),
-        phone: getField(['phone', 'mobile']),
-        city: getField(['city', 'location']),
-        isRoleAccount: isRole,
+        email,
+        name: nameKey ? String(row[nameKey] || '').trim() : '',
+        company: companyKey ? String(row[companyKey] || '').trim() : '',
+        phone: phoneKey ? String(row[phoneKey] || '').trim() : '',
+        city: cityKey ? String(row[cityKey] || '').trim() : '',
       });
     }
 
-    // Save
+    console.log('[upload] processed: valid=%d, invalid=%d, dup=%d', valid.length, invalid, duplicates.length);
+
+    // ── Save to DB in batches (safe)
     let saved = 0;
-    try {
-      const { prisma } = await import('@/lib/prisma');
-      for (const v of valid) {
-        try {
-          await prisma.contact.upsert({
-            where: { email: v.email },
-            create: v,
-            update: { name: v.name, company: v.company, phone: v.phone, city: v.city },
-          });
-          saved++;
-        } catch (e: any) {
-          console.warn('[upload] save fail', v.email, e.message);
+    let dbError: string | null = null;
+    if (valid.length > 0) {
+      try {
+        const { prisma } = await import('@/lib/prisma');
+        const BATCH = 100;
+
+        for (let i = 0; i < valid.length; i += BATCH) {
+          const slice = valid.slice(i, i + BATCH);
+          try {
+            await prisma.$transaction(
+              slice.map(v =>
+                prisma.contact.upsert({
+                  where: { email: v.email },
+                  create: v,
+                  update: {
+                    name: v.name,
+                    company: v.company,
+                    phone: v.phone,
+                    city: v.city,
+                  },
+                })
+              ),
+              { timeout: 20000 }
+            );
+            saved += slice.length;
+          } catch (e: any) {
+            console.warn('[upload] batch save failed:', e.message);
+            dbError = e.message;
+            // Continue with next batch
+          }
         }
+      } catch (e: any) {
+        console.warn('[upload] DB module failed:', e.message);
+        dbError = e.message;
       }
-    } catch (e: any) {
-      console.warn('[upload] DB failed:', e.message);
     }
 
-    console.log('[upload] DONE parser=%s valid=%d invalid=%d dup=%d', parser, valid.length, invalid, duplicateList.length);
-
-    return j({
-      ok: true,
+    // ── FINAL JSON RESPONSE
+    return ok({
       parser,
-      totalRows,
-      valid: valid.length,
-      invalid,
-      duplicates: duplicateList.length,
-      duplicateList: duplicateList.slice(0, 100),
-      disposable,
-      roleAccounts,
+      message: `${valid.length} valid email(s) loaded`,
+      total: rows.length,
+      imported: valid.length,
       saved,
-      invalidList: invalidList.slice(0, 100),
+      duplicates: duplicates.length,
+      duplicateList: duplicates.slice(0, 200),
+      invalid,
+      invalidList: invalidList.slice(0, 200),
       contacts: valid,
+      dbError,
     });
   } catch (err: any) {
     console.error('[upload] FATAL:', err);
-    return j({ ok: false, error: err?.message || 'Server error' }, 500);
+    return fail('Server error: ' + (err?.message || 'unknown'), err?.stack?.slice(0, 300), 500);
   }
 }
