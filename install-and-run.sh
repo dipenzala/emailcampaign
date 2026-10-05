@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 echo "==============================================="
-echo " 🚀 Polling Worker (BullMQ bypass)"
+echo " 🚀 NEVER-STOP WORKER"
 echo "==============================================="
 
 cd "$(dirname "$0")" 2>/dev/null || true
@@ -9,35 +9,32 @@ cd "$(dirname "$0")" 2>/dev/null || true
 echo "📁 $(pwd)"
 echo ""
 
-# ============================================
-# ⚠️ APNI VALUES DAALO
-# ============================================
-export DATABASE_URL="postgresql://neondb_owner:npg_XXX@ep-xxx-pooler.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require"
-export REDIS_URL="rediss://default:XXX@selected-lion-308854.upstash.io:6379"
-export GOOGLE_CLIENT_ID="xxx.apps.googleusercontent.com"
-export GOOGLE_CLIENT_SECRET="GOCSPX-xxx"
-export GOOGLE_REDIRECT_URI="https://emailcampaign-ten.vercel.app/api/oauth/google/callback"
-export TOKEN_ENCRYPTION_KEY="f371f9f48cc14371b941f26f23afe6d37462b143b48187457a2ea0eb642ade02"
-export SESSION_SECRET="8a5880c2c17e072ec23a79da604e6f3ac1e60e88302d01bdd1844d80fe6ad62aad2f1cadc66ec63df1405f9e1188ae3a"
-export APP_URL="https://emailcampaign-ten.vercel.app"
-export NODE_ENV="production"
-# ============================================
-
-echo "✅ Env vars set"
-echo ""
-
-# Check tsx
-if [ ! -f "node_modules/.bin/tsx" ] && [ ! -f "node_modules/tsx/dist/cli.mjs" ]; then
-  echo "⚠️  tsx not found. Installing..."
-  npm install --ignore-scripts tsx --silent
+if [ ! -f ".env" ]; then
+  echo "❌ .env nahi mila"
+  exit 1
 fi
 
-echo "🚀 Starting polling worker..."
+set -a
+source .env
+set +a
+
+echo "✅ .env loaded"
 echo ""
 
-# Run
+# Ensure tsx
+if [ ! -f "node_modules/.bin/tsx" ] && [ ! -f "node_modules/tsx/dist/cli.mjs" ]; then
+  echo "⚠️  Installing tsx..."
+  npm install --ignore-scripts tsx --silent 2>&1 | tail -2
+fi
+
+echo "🚀 Starting auto-runner..."
+echo ""
+
+# Start
 if [ -f "node_modules/.bin/tsx" ]; then
-  exec ./node_modules/.bin/tsx workers/polling-worker.ts
+  exec ./node_modules/.bin/tsx workers/auto-runner.ts
+elif [ -f "node_modules/tsx/dist/cli.mjs" ]; then
+  exec node node_modules/tsx/dist/cli.mjs workers/auto-runner.ts
 else
-  exec node node_modules/tsx/dist/cli.mjs workers/polling-worker.ts
+  exec npx --yes tsx@4.19.2 workers/auto-runner.ts
 fi
