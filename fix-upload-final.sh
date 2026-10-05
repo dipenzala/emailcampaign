@@ -1,3 +1,103 @@
+#!/usr/bin/env bash
+set -e
+
+echo "==============================================="
+echo " 🔧 FINAL UPLOAD FIX — exceljs + Debug"
+echo "==============================================="
+
+cd "$(dirname "$0")" 2>/dev/null || true
+[ -f "package.json" ] || { echo "❌ project root me chalao"; exit 1; }
+echo "📁 $(pwd)"
+echo ""
+
+# ==========================================
+# 1. Add exceljs + xlsx to dependencies
+# ==========================================
+echo "📦 [1/5] Ensuring Excel libraries..."
+
+node <<'NODEEOF'
+const fs = require('fs');
+const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+pkg.dependencies = pkg.dependencies || {};
+
+// Add BOTH parsers — whichever works
+pkg.dependencies.xlsx = '^0.18.5';
+pkg.dependencies['exceljs'] = '^4.4.0';
+
+fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
+console.log('   ✅ xlsx + exceljs added to dependencies');
+NODEEOF
+
+# ==========================================
+# 2. DEBUG ENDPOINT — test if APIs work
+# ==========================================
+echo ""
+echo "🔍 [2/5] Creating debug endpoint..."
+
+mkdir -p app/api/debug/upload-test
+
+cat > app/api/debug/upload-test/route.ts <<'EOF'
+import { NextResponse } from 'next/server';
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+export async function GET() {
+  const results: any = {
+    timestamp: new Date().toISOString(),
+    checks: {},
+  };
+
+  // Check 1: Basic
+  results.checks.basic = 'ok';
+
+  // Check 2: xlsx
+  try {
+    const XLSX = await import('xlsx');
+    results.checks.xlsx = {
+      ok: true,
+      version: XLSX.version || 'unknown',
+      hasRead: typeof XLSX.read === 'function',
+    };
+  } catch (e: any) {
+    results.checks.xlsx = { ok: false, error: e.message };
+  }
+
+  // Check 3: exceljs
+  try {
+    const ExcelJS = await import('exceljs');
+    results.checks.exceljs = {
+      ok: true,
+      hasWorkbook: typeof ExcelJS.Workbook === 'function',
+    };
+  } catch (e: any) {
+    results.checks.exceljs = { ok: false, error: e.message };
+  }
+
+  // Check 4: Prisma
+  try {
+    const { prisma } = await import('@/lib/prisma');
+    const count = await prisma.contact.count();
+    results.checks.prisma = { ok: true, contacts: count };
+  } catch (e: any) {
+    results.checks.prisma = { ok: false, error: e.message };
+  }
+
+  return NextResponse.json({ ok: true, ...results });
+}
+EOF
+sed -i 's/\r$//' app/api/debug/upload-test/route.ts
+echo "   ✅ /api/debug/upload-test"
+
+# ==========================================
+# 3. REWRITE UPLOAD API — ExcelJS primary, XLSX fallback
+# ==========================================
+echo ""
+echo "📝 [3/5] Rewriting upload API..."
+
+mkdir -p app/api/contacts/upload
+
+cat > app/api/contacts/upload/route.ts <<'EOF'
 import { NextResponse } from 'next/server';
 
 export const dynamic = "force-dynamic";
@@ -279,3 +379,80 @@ export async function POST(req: Request) {
     return j({ ok: false, error: err?.message || 'Server error' }, 500);
   }
 }
+EOF
+sed -i 's/\r$//' app/api/contacts/upload/route.ts
+echo "   ✅ Upload API rewritten"
+
+# ==========================================
+# 4. UPDATE FRONTEND — better error handling
+# ==========================================
+echo ""
+echo "📝 [4/5] Improving frontend error handling..."
+
+node <<'NODEEOF'
+const fs = require('fs');
+const f = 'app/campaigns/new/page.tsx';
+if (!fs.existsSync(f)) { console.log('   ⚠️  page not found'); process.exit(0); }
+
+let c = fs.readFileSync(f, 'utf8');
+
+// Improve uploadFile error handling
+if (!c.includes('const responseText')) {
+  c = c.replace(
+    /const r = await fetch\('\/api\/contacts\/upload', \{ method: 'POST', body: fd \}\);\s*const j = await r\.json\(\);\s*if \(!r\.ok\) \{\s*throw new Error\(j\.error \|\| 'Upload failed'\);\s*\}/,
+    `const r = await fetch('/api/contacts/upload', { method: 'POST', body: fd });
+      const responseText = await r.text();
+      let j: any;
+      try {
+        j = JSON.parse(responseText);
+      } catch (parseErr) {
+        // Server sent HTML error page
+        console.error('Non-JSON response:', responseText.slice(0, 200));
+        throw new Error('Server error. Check Vercel logs. (Preview: ' + responseText.slice(0, 100) + ')');
+      }
+      if (!r.ok) {
+        throw new Error(j.error || 'Upload failed');
+      }`
+  );
+}
+
+fs.writeFileSync(f, c);
+console.log('   ✅ Frontend handles non-JSON responses');
+NODEEOF
+
+# ==========================================
+# 5. Git push
+# ==========================================
+echo ""
+echo "🌿 [5/5] Git push..."
+git config --local user.email "63999328+dipenzala@users.noreply.github.com"
+git config --local user.name "Dipen Zala"
+
+git add -A
+git diff --cached --quiet || git commit -m "Fix: exceljs primary parser + CSV native + debug endpoint + better errors"
+
+git push -u origin main 2>&1 | tail -5
+
+echo ""
+echo "==============================================="
+echo " ✅ DEPLOYED"
+echo "==============================================="
+echo ""
+echo "🎯 3 parsers now:"
+echo "   1. ExcelJS (primary)"
+echo "   2. xlsx (fallback)"
+echo "   3. Native CSV parser (no deps)"
+echo ""
+echo "📊 Test endpoints:"
+echo "   1. Debug check:"
+echo "      https://emailcampaign-ten.vercel.app/api/debug/upload-test"
+echo "   2. Then try upload again"
+echo ""
+echo "⚠️  IMPORTANT — CSV Workaround"
+echo "   Excel me file kholo → Save As → CSV → phir upload karo"
+echo "   CSV always works (no dependency needed)"
+echo ""
+echo "📋 Vercel Build Logs check karo:"
+echo "   https://vercel.com/certwinx/emailcampaign-ten/deployments"
+echo "   Latest → Build Logs → search 'xlsx' or 'exceljs'"
+echo "==============================================="

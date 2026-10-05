@@ -92,8 +92,15 @@ export default function NewCampaign() {
 
     try {
       const r = await fetch('/api/contacts/upload', { method: 'POST', body: fd });
-      const j = await r.json();
-
+      const responseText = await r.text();
+      let j: any;
+      try {
+        j = JSON.parse(responseText);
+      } catch (parseErr) {
+        // Server sent HTML error page
+        console.error('Non-JSON response:', responseText.slice(0, 200));
+        throw new Error('Server error. Check Vercel logs. (Preview: ' + responseText.slice(0, 100) + ')');
+      }
       if (!r.ok) {
         throw new Error(j.error || 'Upload failed');
       }
