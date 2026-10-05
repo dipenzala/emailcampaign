@@ -3,6 +3,8 @@ import { NextResponse } from 'next/server';
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+const DEFAULT_DISPLAY_NAME = 'Startup Team';
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const code = url.searchParams.get('code');
@@ -40,11 +42,14 @@ export async function GET(req: Request) {
     const email = me.data.email;
     if (!email) throw new Error('Could not get email');
 
+    // ⭐ ALWAYS use "Startup Team" as display name
+    const displayName = DEFAULT_DISPLAY_NAME;
+
     await prisma.senderAccount.upsert({
       where: { email },
       create: {
         email,
-        displayName: me.data.name ?? email,
+        displayName,
         accessToken: tokens.access_token ? encrypt(tokens.access_token) : null,
         refreshToken: tokens.refresh_token ? encrypt(tokens.refresh_token) : null,
         tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
@@ -52,10 +57,12 @@ export async function GET(req: Request) {
         status: 'CONNECTED',
         isActive: true,
         warmupEnabled: false,
-        dailyLimit: 500,
+        dailyLimit: 350,
         warmupStartedAt: new Date(),
       },
       update: {
+        // ⭐ Force name on update too
+        displayName,
         accessToken: tokens.access_token ? encrypt(tokens.access_token) : undefined,
         refreshToken: tokens.refresh_token ? encrypt(tokens.refresh_token) : undefined,
         tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : undefined,
@@ -65,6 +72,7 @@ export async function GET(req: Request) {
       },
     });
 
+    console.log('[oauth] Connected:', email, '| name:', displayName);
     return NextResponse.redirect(`${appUrl}/senders?connected=${encodeURIComponent(email)}`);
   } catch (err: any) {
     console.error('[oauth/callback]', err);
