@@ -1,3 +1,23 @@
+#!/usr/bin/env bash
+set -e
+
+echo "==============================================="
+echo " 🔧 FIX: Campaign Next Button + Auto-add"
+echo "==============================================="
+
+cd "$(dirname "$0")" 2>/dev/null || true
+[ -f "package.json" ] || { echo "❌ project root me chalao"; exit 1; }
+echo "📁 $(pwd)"
+echo ""
+
+# ==========================================
+# 1. REWRITE CAMPAIGN NEW PAGE — bulletproof
+# ==========================================
+echo "📝 [1/3] Rewriting campaign new page..."
+
+mkdir -p app/campaigns/new
+
+cat > app/campaigns/new/page.tsx <<'EOF'
 'use client';
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
@@ -716,3 +736,54 @@ function Stat({ label, value, color = 'var(--fg)' }: { label: string; value: num
     </div>
   );
 }
+EOF
+sed -i 's/\r$//' app/campaigns/new/page.tsx
+echo "   ✅ Campaign page rewritten"
+
+# ==========================================
+# 2. VERIFY
+# ==========================================
+echo ""
+echo "🔎 [2/3] Verifying..."
+
+grep -q "allContacts" app/campaigns/new/page.tsx && echo "   ✅ Merged contacts logic" || echo "   ⚠️  Missing merge"
+grep -q "manualParsed" app/campaigns/new/page.tsx && echo "   ✅ Auto-parse manual" || echo "   ⚠️  Missing auto-parse"
+grep -q "canGoStep2" app/campaigns/new/page.tsx && echo "   ✅ Next button logic" || echo "   ⚠️  Missing next"
+
+# ==========================================
+# 3. Git push
+# ==========================================
+echo ""
+echo "🌿 [3/3] Git push..."
+git config --local user.email "63999328+dipenzala@users.noreply.github.com"
+git config --local user.name "Dipen Zala"
+
+git add -A
+git diff --cached --quiet || git commit -m "Fix: campaign next button works with EITHER excel or manual (or both)"
+
+git push -u origin main 2>&1 | tail -5
+
+echo ""
+echo "==============================================="
+echo " ✅ FIXED"
+echo "==============================================="
+echo ""
+echo "🎯 NEW BEHAVIOR:"
+echo ""
+echo "   ✓ Excel upload karo → Next enable"
+echo "   ✓ Ya Manual type karo → Next enable (auto-detect)"
+echo "   ✓ Dono use karo → merged list"
+echo "   ✓ Auto-parse: type karte hi emails detect hote hain"
+echo "   ✓ Invalid emails neeche dikhte hain → 1-click valid"
+echo "   ✓ Koi separate 'Add' button nahi chahiye"
+echo ""
+echo "⏱️  2-3 min me Vercel deploy hoga"
+echo ""
+echo "Test:"
+echo "   https://emailcampaign-ten.vercel.app/campaigns/new"
+echo ""
+echo "Steps:"
+echo "   1. Excel upload karo YA manual type karo"
+echo "   2. Next button AUTOMATICALLY enable hoga"
+echo "   3. Continue karo"
+echo "==============================================="
