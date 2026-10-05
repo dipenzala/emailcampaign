@@ -62,7 +62,7 @@ model SenderAccount {
   scope           String?
   status          String    @default("DISCONNECTED")
   sentToday       Int       @default(0)
-  dailyLimit      Int       @default(10)
+  dailyLimit      Int       @default(350)
   batchCount      Int       @default(0)
   rotationOrder   Int       @default(0)
   isActive        Boolean   @default(true)

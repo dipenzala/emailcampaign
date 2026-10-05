@@ -3,7 +3,6 @@ import { prisma } from '@/lib/prisma';
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-// 1x1 transparent GIF
 const PIXEL = Buffer.from(
   'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
   'base64'
@@ -11,35 +10,32 @@ const PIXEL = Buffer.from(
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   try {
-    // Log the open
-    await prisma.campaignRecipient.update({
+    const existing = await prisma.campaignRecipient.findUnique({
       where: { id: params.id },
-      data: {
-        firstOpenedAt: new Date(),
-        lastOpenedAt: new Date(),
-        openCount: { increment: 1 },
-        status: 'OPENED',
-      },
-    }).catch(() => {
-      // If OPENED column doesn't exist yet, try simpler update
-      return prisma.campaignRecipient.update({
+      select: { openCount: true } as any,
+    });
+
+    if (existing) {
+      const isFirstOpen = ((existing as any).openCount ?? 0) === 0;
+
+      await prisma.campaignRecipient.update({
         where: { id: params.id },
         data: {
-          // fallback: just mark it as read via existing field
-          deliveredAt: new Date(),
-        },
-      }).catch(() => {});
-    });
+          openCount: { increment: 1 } as any,
+          lastOpenedAt: new Date() as any,
+          ...(isFirstOpen ? { firstOpenedAt: new Date() as any } : {}),
+        } as any,
+      });
+    }
   } catch (err) {
-    // Silent fail — still return pixel
+    // Silent
   }
 
   return new Response(PIXEL, {
     status: 200,
     headers: {
       'Content-Type': 'image/gif',
-      'Content-Length': String(PIXEL.length),
-      'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+      'Cache-Control': 'no-store, no-cache, must-revalidate, private, max-age=0',
       'Pragma': 'no-cache',
       'Expires': '0',
     },

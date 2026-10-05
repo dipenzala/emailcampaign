@@ -6,6 +6,7 @@ import { toast } from '@/components/Toast';
 export default function RotationPage() {
   const [senders, setSenders] = useState<any[]>([]);
   const [currentSender, setCurrentSender] = useState<string | null>(null);
+  const [summary, setSummary] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -15,6 +16,7 @@ export default function RotationPage() {
       const j = await r.json();
       setSenders(j.senders || []);
       setCurrentSender(j.currentSender || null);
+      setSummary(j.summary || null);
     } catch {}
     setLoading(false);
   };
@@ -29,8 +31,7 @@ export default function RotationPage() {
     setBusy(true);
     try {
       await fetch('/api/senders/rotation', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, ...patch }),
       });
       await load();
@@ -45,7 +46,7 @@ export default function RotationPage() {
     try {
       const r = await fetch('/api/senders/rotation', { method: 'PUT' });
       const j = await r.json();
-      toast(`✅ Reset ${j.reset} senders`, 'success');
+      toast(`Reset ${j.reset} senders`, 'success');
       await load();
     } catch { toast('Failed', 'error'); }
     setBusy(false);
@@ -65,48 +66,73 @@ export default function RotationPage() {
     await update(next.id, { rotationOrder: s.rotationOrder });
   };
 
+  const MAX_LIMIT = 350;
+
   return (
     <div className="space-y-5">
       <div>
         <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">🔄 Sender Rotation</h1>
         <p className="text-sm text-slate-400 mt-1">
-          Strictly one-by-one · Sender 1 → Sender 2 → Sender 3 → wapas Sender 1
+          Strictly one-by-one · Max {MAX_LIMIT} emails per sender per day
         </p>
       </div>
 
-      {/* Current sender */}
-      <div className="card border-violet-500/40" style={{ background: 'rgba(139,92,246,0.06)' }}>
-        <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-2 font-semibold">Current Turn</div>
-        <div className="flex items-center gap-3">
-          <div className="text-3xl">📤</div>
-          <div className="min-w-0 flex-1">
-            <div className="text-lg font-bold text-violet-300 truncate">
+      {/* USAGE SUMMARY */}
+      {summary && (
+        <div className="card" style={{ background: 'linear-gradient(135deg, rgba(139,92,246,0.06), rgba(236,72,153,0.04))', borderColor: 'rgba(139,92,246,0.25)' }}>
+          <div style={{ fontSize: 11, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700, marginBottom: 12 }}>
+            📊 24-Hour Usage
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: 12, marginBottom: 16 }}>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--fg-muted)' }}>Total Capacity</div>
+              <div style={{ fontSize: 22, fontWeight: 700 }}>{summary.totalCapacity}</div>
+              <div style={{ fontSize: 10, color: 'var(--fg-dim)' }}>{summary.senderCount} senders × {MAX_LIMIT}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--fg-muted)' }}>Used Today</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: '#f59e0b' }}>{summary.totalUsed}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--fg-muted)' }}>Remaining</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: '#10b981' }}>{summary.totalRemaining}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--fg-muted)' }}>Usage</div>
+              <div style={{ fontSize: 22, fontWeight: 700 }}>{summary.usagePct}%</div>
+            </div>
+          </div>
+          <div style={{ height: 8, background: 'var(--bg-subtle)', borderRadius: 999, overflow: 'hidden' }}>
+            <div style={{
+              height: '100%',
+              width: Math.min(100, summary.usagePct) + '%',
+              background: summary.usagePct >= 90 ? '#ef4444' : summary.usagePct >= 70 ? '#f59e0b' : 'linear-gradient(90deg,#8b5cf6,#10b981)',
+              transition: 'width .4s',
+            }} />
+          </div>
+        </div>
+      )}
+
+      {/* Current turn */}
+      <div className="card" style={{ borderColor: currentSender ? 'rgba(139,92,246,0.4)' : 'var(--border)' }}>
+        <div style={{ fontSize: 10, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700, marginBottom: 8 }}>
+          Current Turn
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ fontSize: 32 }}>📤</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 17, fontWeight: 700, color: '#8b5cf6', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {currentSender || 'No sender available'}
             </div>
-            <div className="text-xs text-slate-500">
+            <div style={{ fontSize: 12, color: 'var(--fg-muted)' }}>
               {currentSender ? 'Abhi is ki baari hai' : 'Sab senders cap pe hain'}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Info banner */}
-      <div className="card border-blue-500/30 !p-4" style={{ background: 'rgba(59,130,246,0.06)' }}>
-        <div className="text-xs text-blue-300 leading-relaxed">
-          <div className="font-bold mb-2">📋 Rotation Order</div>
-          <div className="font-mono text-[11px] text-slate-400">
-            {senders.map((s, i) => (
-              <div key={s.id}>#{i + 1} {s.email}</div>
-            ))}
-          </div>
-          <div className="mt-3 text-slate-500">
-            Har email ke baad agla sender aayega. Ek baar me sirf ek sender active rahega.
-          </div>
-        </div>
-      </div>
-
       {/* Actions */}
-      <div className="flex gap-2 flex-wrap">
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button onClick={load} disabled={busy} className="btn btn-ghost text-sm">🔃 Refresh</button>
         <button onClick={resetAll} disabled={busy} className="btn btn-ghost text-sm">🔄 Reset Counters</button>
         <Link href="/senders" className="btn btn-ghost text-sm">+ Add Sender</Link>
@@ -114,104 +140,91 @@ export default function RotationPage() {
 
       {/* Sender list */}
       {loading ? (
-        <div className="card text-center py-8 text-slate-500">Loading...</div>
+        <div className="card text-center" style={{ padding: 40, color: 'var(--fg-muted)' }}>Loading...</div>
       ) : senders.length === 0 ? (
-        <div className="card text-center py-12">
-          <div className="text-4xl mb-2">📭</div>
-          <p className="text-slate-400 text-sm mb-4">Koi sender connected nahi</p>
+        <div className="card text-center" style={{ padding: 48 }}>
+          <div style={{ fontSize: 40, marginBottom: 8 }}>📭</div>
+          <p style={{ color: 'var(--fg-muted)', fontSize: 14, marginBottom: 16 }}>Koi sender connected nahi</p>
           <Link href="/senders" className="btn btn-primary">+ Add Sender</Link>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {senders.map((s, i) => {
             const isCurrent = s.email === currentSender;
-            const cap = s.dailyLimit || 500;
+            const cap = s.dailyLimit || MAX_LIMIT;
             const pct = Math.min(100, (s.sentToday / cap) * 100);
+            const remaining = Math.max(0, cap - s.sentToday);
 
             return (
-              <div
-                key={s.id}
-                className={`card !p-4 ${isCurrent ? 'border-violet-500/60 ring-2 ring-violet-500/25' : ''}`}
-              >
-                <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
-                  <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <div className={`w-11 h-11 rounded-xl flex items-center justify-center font-bold text-base flex-shrink-0 ${
-                      isCurrent
-                        ? 'bg-gradient-to-br from-violet-500 to-pink-500 text-white shadow-lg shadow-violet-500/40'
-                        : 'bg-slate-800 text-slate-400'
-                    }`}>
-                      {isCurrent ? '▶' : i + 1}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="font-medium text-sm truncate">{s.email}</div>
+              <div key={s.id} className="card" style={{ padding: 16, borderColor: isCurrent ? 'rgba(139,92,246,0.5)' : undefined, boxShadow: isCurrent ? '0 0 0 3px rgba(139,92,246,0.15)' : undefined }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
+                    <div style={{
+                      width: 44, height: 44, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      background: isCurrent ? 'linear-gradient(135deg,#8b5cf6,#ec4899)' : 'var(--bg-subtle)',
+                      color: isCurrent ? '#fff' : 'var(--fg-dim)',
+                      fontWeight: 700, fontSize: 15, flexShrink: 0,
+                    }}>{isCurrent ? '▶' : i + 1}</div>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.email}</div>
                       {isCurrent && (
-                        <div className="text-[10px] text-violet-400 font-bold uppercase tracking-widest mt-0.5">
+                        <div style={{ fontSize: 10, color: '#8b5cf6', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginTop: 2 }}>
                           ● Active Now
                         </div>
                       )}
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    <button
-                      onClick={() => moveUp(i)}
-                      disabled={i === 0 || busy}
-                      className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-slate-400 hover:text-white disabled:opacity-30 text-xs"
-                    >▲</button>
-                    <button
-                      onClick={() => moveDown(i)}
-                      disabled={i === senders.length - 1 || busy}
-                      className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 text-slate-400 hover:text-white disabled:opacity-30 text-xs"
-                    >▼</button>
+                  <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                    <button onClick={() => moveUp(i)} disabled={i === 0 || busy} className="topbar-btn" style={{ width: 32, height: 32, fontSize: 12 }}>▲</button>
+                    <button onClick={() => moveDown(i)} disabled={i === senders.length - 1 || busy} className="topbar-btn" style={{ width: 32, height: 32, fontSize: 12 }}>▼</button>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2 text-xs mb-3">
-                  <div className="bg-white/5 rounded-lg p-2">
-                    <div className="text-slate-500 text-[10px]">SENT TODAY</div>
-                    <div className="font-semibold">{s.sentToday}/{cap}</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, fontSize: 12, marginBottom: 12 }}>
+                  <div style={{ background: 'var(--bg-subtle)', borderRadius: 10, padding: 10 }}>
+                    <div style={{ fontSize: 10, color: 'var(--fg-dim)', textTransform: 'uppercase' }}>Used</div>
+                    <div style={{ fontSize: 15, fontWeight: 700 }}>{s.sentToday}/{cap}</div>
                   </div>
-                  <div className="bg-white/5 rounded-lg p-2">
-                    <div className="text-slate-500 text-[10px]">BATCH</div>
-                    <div className="font-semibold">{s.batchCount}/1</div>
+                  <div style={{ background: 'var(--bg-subtle)', borderRadius: 10, padding: 10 }}>
+                    <div style={{ fontSize: 10, color: 'var(--fg-dim)', textTransform: 'uppercase' }}>Remaining</div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: remaining > 50 ? '#10b981' : '#f59e0b' }}>{remaining}</div>
                   </div>
-                  <div className="bg-white/5 rounded-lg p-2">
-                    <div className="text-slate-500 text-[10px]">REP</div>
-                    <div className={`font-semibold ${
-                      s.reputationScore >= 80 ? 'text-emerald-400'
-                      : s.reputationScore >= 50 ? 'text-amber-400'
-                      : 'text-red-400'
-                    }`}>{s.reputationScore}</div>
+                  <div style={{ background: 'var(--bg-subtle)', borderRadius: 10, padding: 10 }}>
+                    <div style={{ fontSize: 10, color: 'var(--fg-dim)', textTransform: 'uppercase' }}>Rep</div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: s.reputationScore >= 80 ? '#10b981' : s.reputationScore >= 50 ? '#f59e0b' : '#ef4444' }}>{s.reputationScore}</div>
                   </div>
                 </div>
 
-                <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mb-3">
-                  <div
-                    className={`h-full ${pct >= 100 ? 'bg-red-500' : pct >= 70 ? 'bg-amber-500' : 'bg-emerald-500'}`}
-                    style={{ width: pct + '%' }}
-                  />
+                <div style={{ width: '100%', height: 6, background: 'var(--bg-subtle)', borderRadius: 999, overflow: 'hidden', marginBottom: 12 }}>
+                  <div style={{
+                    height: '100%', width: pct + '%',
+                    background: pct >= 100 ? '#ef4444' : pct >= 70 ? '#f59e0b' : '#10b981',
+                  }} />
                 </div>
 
-                <div className="flex items-center justify-between flex-wrap gap-3">
-                  <label className="flex items-center gap-2 cursor-pointer">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
                     <input
                       type="checkbox"
                       checked={s.isActive !== false}
                       onChange={e => update(s.id, { isActive: e.target.checked })}
-                      className="w-4 h-4"
+                      style={{ width: 16, height: 16 }}
                     />
-                    <span className="text-xs text-slate-400">Active</span>
+                    <span style={{ fontSize: 12, color: 'var(--fg-muted)' }}>Active</span>
                   </label>
-                  <div className="flex items-center gap-2">
-                    <label className="text-xs text-slate-400">Daily Limit:</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <label style={{ fontSize: 12, color: 'var(--fg-muted)' }}>Daily Limit:</label>
                     <input
                       type="number"
                       min={1}
-                      max={500}
+                      max={MAX_LIMIT}
                       value={s.dailyLimit}
-                      onChange={e => update(s.id, { dailyLimit: parseInt(e.target.value) || 500 })}
-                      className="w-20 bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs"
+                      onChange={e => update(s.id, { dailyLimit: Math.min(MAX_LIMIT, parseInt(e.target.value) || MAX_LIMIT) })}
+                      className="input"
+                      style={{ width: 80, padding: '6px 10px', fontSize: 13 }}
                     />
+                    <span style={{ fontSize: 11, color: 'var(--fg-dim)' }}>max {MAX_LIMIT}</span>
                   </div>
                 </div>
               </div>
