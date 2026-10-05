@@ -13,6 +13,7 @@ export async function GET() {
       return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Get all status counts
     const groups = await prisma.campaignRecipient.groupBy({
       by: ['status'],
       _count: { _all: true },
@@ -25,7 +26,7 @@ export async function GET() {
     let opened = 0;
     try {
       opened = await prisma.campaignRecipient.count({
-        where: { openCount: { gt: 0 } },
+        where: { openCount: { gt: 0 } } as any,
       });
     } catch { opened = 0; }
 
@@ -37,7 +38,12 @@ export async function GET() {
     const bounced = byStatus.BOUNCED ?? 0;
     const suppressed = byStatus.SUPPRESSED ?? 0;
     const pending = queued + processing;
-    const total = queued + processing + sent + delivered + failed + bounced + suppressed;
+
+    // TOTAL = all recipients ever
+    const totalRecipients = await prisma.campaignRecipient.count();
+
+    // Campaign count
+    const totalCampaigns = await prisma.campaign.count();
 
     const senders = await prisma.senderAccount.findMany({
       orderBy: [{ status: 'asc' }, { sentToday: 'asc' }],
@@ -57,15 +63,24 @@ export async function GET() {
     });
 
     const activity = recent.map(r => {
-      const opened = (r as any).openCount > 0;
-      return `[${r.sentAt ? new Date(r.sentAt).toLocaleTimeString() : '--'}] ${opened ? '👁️' : '✅'} ${r.contact.email}`;
+      const isOpened = ((r as any).openCount ?? 0) > 0;
+      return `[${r.sentAt ? new Date(r.sentAt).toLocaleTimeString() : '--'}] ${isOpened ? '👁️' : '✅'} ${r.contact.email}`;
     });
 
     return NextResponse.json({
       ok: true,
       stats: {
-        total, sent, delivered, failed, bounced, suppressed, pending,
-        queued, processing, opened,
+        total: totalRecipients,
+        totalCampaigns,
+        sent,
+        delivered,
+        failed,
+        bounced,
+        suppressed,
+        pending,
+        queued,
+        processing,
+        opened,
       },
       senders,
       campaign,
@@ -73,6 +88,7 @@ export async function GET() {
       ts: Date.now(),
     });
   } catch (err: any) {
+    console.error('[live/stats]', err);
     return NextResponse.json({ ok: false, error: err.message }, { status: 500 });
   }
 }

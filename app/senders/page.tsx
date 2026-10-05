@@ -6,9 +6,9 @@ import { toast } from '@/components/Toast';
 function SendersInner() {
   const params = useSearchParams();
   const [list, setList] = useState<any[]>([]);
+  const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [connecting, setConnecting] = useState(false);
 
   const load = async () => {
     try {
@@ -26,16 +26,16 @@ function SendersInner() {
   }, []);
 
   useEffect(() => {
-    const connected = params.get('connected');
-    if (connected) {
-      toast(`✅ Connected ${connected}`, 'success');
+    const c = params.get('connected');
+    if (c) {
+      toast(`✅ Connected ${c}`, 'success');
       window.history.replaceState({}, '', '/senders');
     }
   }, [params]);
 
   const connect = () => {
-    setConnecting(true);
-    window.location.href = '/api/oauth/google/start';
+    if (!email || !email.includes('@')) { toast('Valid email daalo', 'error'); return; }
+    window.location.href = '/api/oauth/google/start?email=' + encodeURIComponent(email);
   };
 
   const disconnect = async (id: string, em: string) => {
@@ -54,110 +54,152 @@ function SendersInner() {
     setBusy(false);
   };
 
+  const reconnect = (em: string) => {
+    window.location.href = '/api/oauth/google/start?email=' + encodeURIComponent(em);
+  };
+
   const connected = list.filter(s => s.status === 'CONNECTED').length;
+  const totalCapacity = connected * 350;
+  const totalUsed = list.reduce((sum, s) => sum + (s.sentToday || 0), 0);
 
   return (
     <div className="space-y-5">
       <div>
         <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">🔐 Manage Senders</h1>
-        <p className="text-sm text-slate-400 mt-1">
+        <p className="text-sm" style={{ color: 'var(--fg-muted)', marginTop: 4 }}>
           {connected}/{list.length} connected · Auto-refresh 5s
         </p>
       </div>
 
-      {/* BIG Connect Button */}
-      <div className="card" style={{
-        background: 'linear-gradient(135deg, rgba(139,92,246,0.15), rgba(236,72,153,0.1))',
-        border: '1px solid rgba(139,92,246,0.3)',
-      }}>
-        <div className="flex flex-col items-center text-center gap-4 py-4">
-          <div className="text-5xl floaty">🔐</div>
-          <div>
-            <h2 className="font-semibold text-lg mb-1">Connect Gmail Account</h2>
-            <p className="text-xs text-slate-400">
-              Click karo → Google account picker khulega → Allow karo
-            </p>
+      {/* Usage Summary */}
+      {connected > 0 && (
+        <div className="card" style={{ background: 'linear-gradient(135deg, rgba(139,92,246,0.08), rgba(236,72,153,0.05))', borderColor: 'rgba(139,92,246,0.25)' }}>
+          <div style={{ fontSize: 11, color: 'var(--fg-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700, marginBottom: 12 }}>
+            📊 24-Hour Usage
           </div>
-          <button
-            onClick={connect}
-            disabled={connecting}
-            className="btn btn-primary text-base px-8 py-3.5"
-            style={{ minWidth: 240 }}
-          >
-            {connecting ? (
-              <>⏳ Opening Google...</>
-            ) : (
-              <>
-                <svg width="20" height="20" viewBox="0 0 24 24" style={{ display: 'inline', marginRight: 8 }}>
-                  <path fill="#fff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                  <path fill="#fff" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                  <path fill="#fff" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-                  <path fill="#fff" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-                </svg>
-                Connect Google Account
-              </>
-            )}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(90px, 1fr))', gap: 12 }}>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--fg-muted)' }}>Capacity</div>
+              <div style={{ fontSize: 20, fontWeight: 700 }}>{totalCapacity}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--fg-muted)' }}>Used</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: '#f59e0b' }}>{totalUsed}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--fg-muted)' }}>Remaining</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: '#10b981' }}>{totalCapacity - totalUsed}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Connect */}
+      <div className="card">
+        <h2 style={{ fontSize: 15, marginBottom: 12 }}>➕ Connect Gmail Account</h2>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <input
+            className="input"
+            style={{ flex: 1, minWidth: 200 }}
+            placeholder="yourname@gmail.com"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            type="email"
+            onKeyDown={e => e.key === 'Enter' && connect()}
+          />
+          <button className="btn btn-primary" onClick={connect} disabled={!email || busy}>
+            Connect Google
           </button>
-          <div className="text-xs text-slate-500 max-w-md">
-            ⚠️ Google screen pe <b className="text-violet-300">"Send email on your behalf"</b> ko <b className="text-violet-300">ALLOW</b> karna zaroori hai
-          </div>
+        </div>
+        <div style={{ marginTop: 12, padding: 12, borderRadius: 10, background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)', fontSize: 12, color: '#1e40af' }}>
+          ⚠️ Google screen pe <b>"Send email on your behalf"</b> ko <b>ALLOW</b> karo
         </div>
       </div>
 
-      {/* Senders list */}
+      {/* Sender list */}
       {loading ? (
-        <div className="card text-center py-8 text-slate-500">Loading...</div>
+        <div className="card text-center" style={{ padding: 40, color: 'var(--fg-muted)' }}>Loading...</div>
       ) : list.length === 0 ? (
-        <div className="card text-center py-12">
-          <div className="text-4xl mb-2">📭</div>
-          <p className="text-slate-400 text-sm">Koi sender connect nahi hai</p>
-          <p className="text-xs text-slate-500 mt-2">Upar button dabao</p>
+        <div className="card text-center" style={{ padding: 48 }}>
+          <div style={{ fontSize: 40, marginBottom: 8 }}>📭</div>
+          <p style={{ color: 'var(--fg-muted)', fontSize: 14 }}>Koi sender connect nahi hai</p>
         </div>
       ) : (
-        <div className="space-y-3">
-          <div className="text-xs text-slate-500 uppercase tracking-wider font-semibold">
-            Connected Senders ({list.length})
-          </div>
-          {list.map(s => (
-            <div key={s.id} className="card !p-4">
-              <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
-                <div className="min-w-0 flex-1">
-                  <div className="font-medium text-sm truncate">{s.email}</div>
-                  {s.displayName && <div className="text-xs text-slate-500 truncate">{s.displayName}</div>}
-                </div>
-                <span className={`text-xs px-2.5 py-1 rounded-lg font-medium flex-shrink-0 ${
-                  s.status === 'CONNECTED'
-                    ? 'bg-emerald-500/20 text-emerald-400'
-                    : 'bg-red-500/20 text-red-400'
-                }`}>
-                  ● {s.status}
-                </span>
-              </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {list.map(s => {
+            const cap = s.dailyLimit || 350;
+            const used = s.sentToday || 0;
+            const remaining = Math.max(0, cap - used);
+            const pct = Math.min(100, (used / cap) * 100);
 
-              <div className="grid grid-cols-3 gap-2 text-xs mb-3">
-                <div className="bg-white/5 rounded-lg p-2">
-                  <div className="text-slate-500 text-[10px]">SENT TODAY</div>
-                  <div className="font-semibold text-sm">{s.sentToday || 0}</div>
+            return (
+              <div key={s.id} className="card" style={{ padding: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: 1 }}>
+                    <div style={{
+                      width: 44, height: 44, borderRadius: 12,
+                      background: s.status === 'CONNECTED' ? 'linear-gradient(135deg, #10b981, #059669)' : 'linear-gradient(135deg, #ef4444, #dc2626)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: '#fff', fontSize: 18, flexShrink: 0,
+                    }}>
+                      {s.status === 'CONNECTED' ? '✓' : '✕'}
+                    </div>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--fg)' }}>
+                        {s.email}
+                      </div>
+                      <div style={{ fontSize: 11, color: s.status === 'CONNECTED' ? '#10b981' : '#dc2626', marginTop: 2, fontWeight: 600 }}>
+                        ● {s.status}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="bg-white/5 rounded-lg p-2">
-                  <div className="text-slate-500 text-[10px]">LIMIT</div>
-                  <div className="font-semibold text-sm">{s.dailyLimit || 500}</div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 12 }}>
+                  <div style={{ background: 'var(--bg-subtle)', borderRadius: 10, padding: 10 }}>
+                    <div style={{ fontSize: 10, color: 'var(--fg-dim)', textTransform: 'uppercase', fontWeight: 600 }}>Sent Today</div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--fg)', marginTop: 2 }}>{used}/{cap}</div>
+                  </div>
+                  <div style={{ background: 'var(--bg-subtle)', borderRadius: 10, padding: 10 }}>
+                    <div style={{ fontSize: 10, color: 'var(--fg-dim)', textTransform: 'uppercase', fontWeight: 600 }}>Remaining</div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: remaining > 50 ? '#10b981' : '#f59e0b', marginTop: 2 }}>{remaining}</div>
+                  </div>
+                  <div style={{ background: 'var(--bg-subtle)', borderRadius: 10, padding: 10 }}>
+                    <div style={{ fontSize: 10, color: 'var(--fg-dim)', textTransform: 'uppercase', fontWeight: 600 }}>Limit</div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--fg)', marginTop: 2 }}>{cap}</div>
+                  </div>
                 </div>
-                <div className="bg-white/5 rounded-lg p-2">
-                  <div className="text-slate-500 text-[10px]">REP</div>
-                  <div className="font-semibold text-sm">{s.reputationScore ?? 100}</div>
+
+                <div style={{ width: '100%', height: 6, background: 'var(--bg-subtle)', borderRadius: 999, overflow: 'hidden', marginBottom: 12 }}>
+                  <div style={{
+                    height: '100%',
+                    width: pct + '%',
+                    background: pct >= 100 ? '#ef4444' : pct >= 70 ? '#f59e0b' : '#10b981',
+                    transition: 'width .3s',
+                  }} />
+                </div>
+
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    onClick={() => reconnect(s.email)}
+                    disabled={busy}
+                    className="btn btn-ghost"
+                    style={{ flex: 1, fontSize: 13 }}
+                  >
+                    🔄 Reconnect
+                  </button>
+                  <button
+                    onClick={() => disconnect(s.id, s.email)}
+                    disabled={busy}
+                    className="btn btn-danger"
+                    style={{ flex: 1, fontSize: 13 }}
+                  >
+                    Disconnect
+                  </button>
                 </div>
               </div>
-
-              <button
-                onClick={() => disconnect(s.id, s.email)}
-                disabled={busy}
-                className="btn btn-danger w-full text-xs"
-              >
-                🚪 Disconnect
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -166,7 +208,7 @@ function SendersInner() {
 
 export default function SendersPage() {
   return (
-    <Suspense fallback={<div className="card text-center py-8 text-slate-500">Loading...</div>}>
+    <Suspense fallback={<div className="card text-center" style={{ padding: 40, color: 'var(--fg-muted)' }}>Loading...</div>}>
       <SendersInner />
     </Suspense>
   );
