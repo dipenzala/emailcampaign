@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import WorkerToggle from '@/components/WorkerToggle';
 
 type LogEntry = { time: string; text: string; type: 'info' | 'success' | 'error' | 'warn' };
 type OpenedItem = {
@@ -174,6 +175,9 @@ export default function BulkWorkerPage() {
           Har {intervalSec}s me {batchSize} emails · ~{emailsPerMin}/min
         </p>
       </div>
+
+      {/* Worker ON/OFF toggle */}
+      <WorkerToggle variant="card" />
 
       {/* TABS */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

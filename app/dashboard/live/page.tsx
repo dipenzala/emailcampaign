@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import WorkerToggle from '@/components/WorkerToggle';
 
 type DetailsType = 'campaigns' | 'sent' | 'pending' | 'queued' | 'processing' | 'failed' | 'delivered' | 'bounced' | 'suppressed' | 'opened';
 
@@ -65,6 +66,9 @@ export default function LiveDashboard() {
       <div className="page-hint">
         💡 Kisi bhi card pe click karo → detailed list dekho
       </div>
+
+      {/* Worker ON/OFF toggle — always visible */}
+      <WorkerToggle variant="card" />
 
       {/* Big KPIs — all light cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 12 }}>

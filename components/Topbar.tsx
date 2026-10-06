@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import WorkerToggle from './WorkerToggle';
 import { useEffect, useState } from 'react';
 
 const LABELS: Record<string, string> = {
