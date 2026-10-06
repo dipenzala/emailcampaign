@@ -29,6 +29,7 @@ const NAV_SECTIONS = [
     items: [
       { href: '/worker', label: 'Worker', icon: '🤖' },
       { href: '/bulk', label: 'Bulk Sender', icon: '📧' },
+      { href: '/control', label: 'Worker Control', icon: '🎛️' },
       { href: '/settings', label: 'Settings', icon: '⚙️' },
       { href: '/help', label: 'Help', icon: '💡' },
     ],
