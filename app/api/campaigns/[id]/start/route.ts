@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { checkEmail } from '@/lib/spam-checker';
+import { enableWorker, isWorkerEnabled } from '@/lib/worker-settings';
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -8,10 +9,14 @@ export const maxDuration = 60;
 
 export async function POST(_: Request, { params }: { params: { id: string } }) {
   const t0 = Date.now();
+
   try {
     const campaign = await prisma.campaign.findUnique({ where: { id: params.id } });
-    if (!campaign) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    if (!campaign) {
+      return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
+    }
 
+    // ── Spam check
     const sender = await prisma.senderAccount.findFirst({ where: { status: 'CONNECTED' } });
     const report = checkEmail({
       subject: campaign.subject,
@@ -31,28 +36,44 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
       );
     }
 
-    // Mark campaign as RUNNING
+    // ── Check queue has recipients
+    const queuedCount = await prisma.campaignRecipient.count({
+      where: { campaignId: params.id, status: 'QUEUED' },
+    });
+    if (queuedCount === 0) {
+      return NextResponse.json({ error: 'No queued recipients' }, { status: 400 });
+    }
+
+    // ═══════════════════════════════════════════
+    // ⚡ AUTO-ENABLE WORKER ON LAUNCH
+    // ═══════════════════════════════════════════
+    const wasEnabled = await isWorkerEnabled();
+    if (!wasEnabled) {
+      await enableWorker();
+      console.log('[start] Worker was OFF — auto-enabled');
+    }
+
+    // ── Mark campaign RUNNING
     await prisma.campaign.update({
       where: { id: params.id },
       data: { status: 'RUNNING', startedAt: new Date() },
     });
 
-    // Count queued recipients
-    const queued = await prisma.campaignRecipient.count({
-      where: { campaignId: params.id, status: 'QUEUED' },
-    });
+    console.log('[start] Campaign', params.id, 'RUNNING |', queuedCount, 'queued | worker:', wasEnabled ? 'was ON' : 'auto-enabled');
 
-    // NO BullMQ — polling worker will pick these up from DB
     return NextResponse.json({
       ok: true,
-      queued,
+      queued: queuedCount,
       total: campaign.totalCount,
       spamScore: report.score,
-      message: 'Campaign started. Worker will process from DB.',
+      workerAutoEnabled: !wasEnabled,
+      message: wasEnabled
+        ? 'Campaign started. Worker already running.'
+        : 'Campaign started. Worker auto-enabled.',
       elapsed: Date.now() - t0,
     });
   } catch (err: any) {
-    console.error('[start]', err);
+    console.error('[start] FATAL:', err);
     return NextResponse.json(
       { error: 'Failed to start', message: err?.message ?? String(err) },
       { status: 500 }
