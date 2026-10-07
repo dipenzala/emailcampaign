@@ -94,7 +94,19 @@ export default function BulkWorkerPage() {
   const runOnce = async () => {
     try {
       const r = await fetch(`/api/worker/bulk?batch=${batchSize}`, { method: 'POST' });
-      const j = await r.json();
+
+      // Safe response parsing — never blindly .json()
+      const rawText = await r.text();
+      let j: any;
+      try {
+        j = JSON.parse(rawText);
+      } catch (parseErr) {
+        console.error('Non-JSON response:', rawText.slice(0, 200));
+        if (r.status === 404) {
+          throw new Error('API route not found. Vercel deploy pending?');
+        }
+        throw new Error(`Server error (${r.status}): ${rawText.slice(0, 100)}`);
+      }
 
       const newStats = {
         sent: statsRef.current.sent + (j.sent ?? 0),
