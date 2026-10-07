@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import WorkerToggle from './WorkerToggle';
+import BulkWorkerToggle from './BulkWorkerToggle';
 import { useEffect, useState } from 'react';
 
 const LABELS: Record<string, string> = {

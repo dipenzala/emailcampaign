@@ -2,10 +2,8 @@ import { prisma } from './prisma';
 
 const TABLE = 'worker_settings';
 const KEY_ENABLED = 'worker_enabled';
+const KEY_BULK_ENABLED = 'bulk_worker_enabled';
 
-/**
- * Ensure worker_settings table exists.
- */
 export async function ensureSettingsTable() {
   try {
     await prisma.$executeRawUnsafe(`
@@ -15,14 +13,9 @@ export async function ensureSettingsTable() {
         updated_at TIMESTAMP DEFAULT NOW()
       )
     `);
-  } catch (e) {
-    // Ignore if already exists
-  }
+  } catch {}
 }
 
-/**
- * Read a setting value.
- */
 export async function getSetting(key: string, fallback: string = ''): Promise<string> {
   try {
     const rows: any[] = await prisma.$queryRawUnsafe(
@@ -39,14 +32,10 @@ export async function getSetting(key: string, fallback: string = ''): Promise<st
   }
 }
 
-/**
- * Write a setting value.
- */
 export async function setSetting(key: string, value: string): Promise<void> {
   try {
     await prisma.$executeRawUnsafe(
-      `INSERT INTO ${TABLE} (key, value, updated_at)
-       VALUES ($1, $2, NOW())
+      `INSERT INTO ${TABLE} (key, value, updated_at) VALUES ($1, $2, NOW())
        ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
       key,
       value
@@ -55,36 +44,33 @@ export async function setSetting(key: string, value: string): Promise<void> {
     if (/relation.*does not exist/i.test(e.message)) {
       await ensureSettingsTable();
       await prisma.$executeRawUnsafe(
-        `INSERT INTO ${TABLE} (key, value, updated_at)
-         VALUES ($1, $2, NOW())
+        `INSERT INTO ${TABLE} (key, value, updated_at) VALUES ($1, $2, NOW())
          ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
         key,
         value
       );
-    } else {
-      throw e;
-    }
+    } else throw e;
   }
 }
 
-/**
- * Is worker enabled?
- */
+// ── Main worker ──
 export async function isWorkerEnabled(): Promise<boolean> {
-  const v = await getSetting(KEY_ENABLED, 'true');
-  return v !== 'false';
+  return (await getSetting(KEY_ENABLED, 'true')) !== 'false';
 }
-
-/**
- * Turn worker ON.
- */
 export async function enableWorker(): Promise<void> {
   await setSetting(KEY_ENABLED, 'true');
 }
-
-/**
- * Turn worker OFF.
- */
 export async function disableWorker(): Promise<void> {
   await setSetting(KEY_ENABLED, 'false');
+}
+
+// ── Bulk worker (new) ──
+export async function isBulkWorkerEnabled(): Promise<boolean> {
+  return (await getSetting(KEY_BULK_ENABLED, 'true')) !== 'false';
+}
+export async function enableBulkWorker(): Promise<void> {
+  await setSetting(KEY_BULK_ENABLED, 'true');
+}
+export async function disableBulkWorker(): Promise<void> {
+  await setSetting(KEY_BULK_ENABLED, 'false');
 }

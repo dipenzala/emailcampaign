@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import WorkerToggle from '@/components/WorkerToggle';
+import BulkWorkerToggle from '@/components/BulkWorkerToggle';
 
 type LogEntry = { time: string; text: string; type: 'info' | 'success' | 'error' | 'warn' };
 type OpenedItem = {
@@ -190,6 +191,7 @@ export default function BulkWorkerPage() {
 
       {/* Worker ON/OFF toggle */}
       <WorkerToggle variant="card" />
+      <BulkWorkerToggle variant="card" />
 
       {/* TABS */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

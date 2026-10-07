@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { isBulkWorkerEnabled } from '@/lib/worker-settings';
 import { autoResetIfNewDay } from '@/lib/daily-reset';
 import { prisma } from '@/lib/prisma';
 import { decrypt } from '@/lib/crypto';
@@ -20,6 +21,18 @@ export async function GET(req: Request) { return handle(req); }
 export async function POST(req: Request) { return handle(req); }
 
 async function handle(req: Request) {
+  // ⚡ CHECK BULK WORKER FLAG FIRST
+  try {
+    const enabled = await isBulkWorkerEnabled();
+    if (!enabled) {
+      return j({
+        ok: true,
+        message: 'BULK WORKER DISABLED',
+        bulkDisabled: true,
+        processed: 0, sent: 0, failed: 0, remaining: 0, elapsed: 0,
+      });
+    }
+  } catch {}
   const t0 = Date.now();
   const results: any = {
     ok: true, processed: 0, sent: 0, failed: 0, bounced: 0,

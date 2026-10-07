@@ -1,7 +1,12 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { checkEmail } from '@/lib/spam-checker';
-import { enableWorker, isWorkerEnabled } from '@/lib/worker-settings';
+import {
+  enableWorker,
+  enableBulkWorker,
+  isWorkerEnabled,
+  isBulkWorkerEnabled,
+} from '@/lib/worker-settings';
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -16,7 +21,7 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
       return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
     }
 
-    // ── Spam check
+    // Spam check
     const sender = await prisma.senderAccount.findFirst({ where: { status: 'CONNECTED' } });
     const report = checkEmail({
       subject: campaign.subject,
@@ -36,7 +41,7 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
       );
     }
 
-    // ── Check queue has recipients
+    // Queue check
     const queuedCount = await prisma.campaignRecipient.count({
       where: { campaignId: params.id, status: 'QUEUED' },
     });
@@ -45,31 +50,43 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
     }
 
     // ═══════════════════════════════════════════
-    // ⚡ AUTO-ENABLE WORKER ON LAUNCH
+    // ⚡ AUTO-ENABLE BOTH WORKERS ON LAUNCH
     // ═══════════════════════════════════════════
-    const wasEnabled = await isWorkerEnabled();
-    if (!wasEnabled) {
+    const workersEnabled: string[] = [];
+
+    const mainWasOn = await isWorkerEnabled();
+    if (!mainWasOn) {
       await enableWorker();
-      console.log('[start] Worker was OFF — auto-enabled');
+      workersEnabled.push('main');
     }
 
-    // ── Mark campaign RUNNING
+    const bulkWasOn = await isBulkWorkerEnabled();
+    if (!bulkWasOn) {
+      await enableBulkWorker();
+      workersEnabled.push('bulk');
+    }
+
+    // Mark RUNNING
     await prisma.campaign.update({
       where: { id: params.id },
       data: { status: 'RUNNING', startedAt: new Date() },
     });
 
-    console.log('[start] Campaign', params.id, 'RUNNING |', queuedCount, 'queued | worker:', wasEnabled ? 'was ON' : 'auto-enabled');
+    console.log(
+      '[start] Campaign', params.id,
+      '| queued:', queuedCount,
+      '| auto-enabled:', workersEnabled.join(', ') || 'none (both already ON)'
+    );
 
     return NextResponse.json({
       ok: true,
       queued: queuedCount,
       total: campaign.totalCount,
       spamScore: report.score,
-      workerAutoEnabled: !wasEnabled,
-      message: wasEnabled
-        ? 'Campaign started. Worker already running.'
-        : 'Campaign started. Worker auto-enabled.',
+      workersAutoEnabled: workersEnabled,
+      message: workersEnabled.length > 0
+        ? `Campaign started. Auto-enabled: ${workersEnabled.join(', ')}`
+        : 'Campaign started. Workers already running.',
       elapsed: Date.now() - t0,
     });
   } catch (err: any) {

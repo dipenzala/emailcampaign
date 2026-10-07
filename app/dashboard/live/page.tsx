@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import WorkerToggle from '@/components/WorkerToggle';
+import BulkWorkerToggle from '@/components/BulkWorkerToggle';
 
 type DetailsType = 'campaigns' | 'sent' | 'pending' | 'queued' | 'processing' | 'failed' | 'delivered' | 'bounced' | 'suppressed' | 'opened';
 
@@ -68,6 +69,7 @@ export default function LiveDashboard() {
       </div>
 
       {/* Worker ON/OFF toggle — always visible */}
+      <BulkWorkerToggle variant="card" />
       <WorkerToggle variant="card" />
 
       {/* Big KPIs — all light cards */}
