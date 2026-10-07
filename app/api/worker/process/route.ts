@@ -46,7 +46,16 @@ async function handle() {
     } catch {}
 
     const recips = await prisma.campaignRecipient.findMany({
-      where: { status: 'QUEUED', campaign: { status: 'RUNNING' } },
+      where: {
+        status: 'QUEUED',
+        campaign: {
+          status: 'RUNNING',
+          OR: [
+            { approvalRequired: false },
+            { approvalStatus: 'APPROVED' },
+          ],
+        },
+      },
       include: { contact: true, campaign: true },
       take: 3,
       orderBy: { queuedAt: 'asc' },
@@ -54,7 +63,16 @@ async function handle() {
 
     if (recips.length === 0) {
       results.remaining = await prisma.campaignRecipient.count({
-        where: { status: 'QUEUED', campaign: { status: 'RUNNING' } },
+        where: {
+        status: 'QUEUED',
+        campaign: {
+          status: 'RUNNING',
+          OR: [
+            { approvalRequired: false },
+            { approvalStatus: 'APPROVED' },
+          ],
+        },
+      },
       });
       results.elapsed = Date.now() - t0;
       return j({ ...results, message: 'No queued recipients' });
@@ -165,7 +183,16 @@ async function handle() {
     }
 
     results.remaining = await prisma.campaignRecipient.count({
-      where: { status: 'QUEUED', campaign: { status: 'RUNNING' } },
+      where: {
+        status: 'QUEUED',
+        campaign: {
+          status: 'RUNNING',
+          OR: [
+            { approvalRequired: false },
+            { approvalStatus: 'APPROVED' },
+          ],
+        },
+      },
     });
     results.elapsed = Date.now() - t0;
     return j(results);

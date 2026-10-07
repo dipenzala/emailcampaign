@@ -160,6 +160,15 @@ model Campaign {
   lastActiveDate           DateTime?
   nextRunAt                DateTime?
 
+  // ═══ Approval Gate fields ═══
+  approvalRequired  Boolean   @default(true)
+  approvalStatus    String    @default("PENDING")
+  approvalEmail     String?
+  approvalToken     String?   @unique
+  testSentAt        DateTime?
+  approvedAt        DateTime?
+  rejectedAt        DateTime?
+
 }
 
 model CampaignRecipient {

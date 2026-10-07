@@ -327,7 +327,16 @@ async function poll() {
     await autoResetIfNewDay().catch(() => {});
     
     const recips = await prisma.campaignRecipient.findMany({
-      where: { status: 'QUEUED', campaign: { status: 'RUNNING' } },
+      where: {
+        status: 'QUEUED',
+        campaign: {
+          status: 'RUNNING',
+          OR: [
+            { approvalRequired: false },
+            { approvalStatus: 'APPROVED' },
+          ],
+        },
+      },
       include: { contact: true },
       take: BATCH,
       orderBy: { queuedAt: 'asc' },

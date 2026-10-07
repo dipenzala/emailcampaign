@@ -67,6 +67,9 @@ export default function NewCampaign() {
   const [invalidRows, setInvalidRows] = useState<InvalidRow[]>([]);
   const [duplicateEmails, setDuplicateEmails] = useState<string[]>([]);
   const [testEmail, setTestEmail] = useState('');
+  const [approvalEmail, setApprovalEmail] = useState('');
+  const [approvalSent, setApprovalSent] = useState(false);
+  const [approvalBusy, setApprovalBusy] = useState(false);
   const [testSending, setTestSending] = useState(false);
   const [senders, setSenders] = useState<any[]>([]);
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'done' | 'error'>('idle');
@@ -266,7 +269,53 @@ export default function NewCampaign() {
   // ═══════════════════════════════════════════
   // LAUNCH
   // ═══════════════════════════════════════════
-  const launch = async () => {
+  
+  // ═══════════════════════════════════════════
+  // REQUEST APPROVAL — send test email
+  // ═══════════════════════════════════════════
+  const requestApproval = async () => {
+    if (!allContacts.length) { showMsg('❌ Contacts add karo', 'error'); return; }
+    if (!subject.trim()) { showMsg('❌ Subject daalo', 'error'); return; }
+    if (!approvalEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(approvalEmail)) {
+      showMsg('❌ Valid approval email daalo (aapka personal email)', 'error');
+      return;
+    }
+
+    setApprovalBusy(true);
+    showMsg('📤 Creating campaign + sending test email...', 'info');
+
+    try {
+      // Create campaign
+      const createRes = await fetch('/api/campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name, subject, html,
+          emails: allContacts.map(c => c.email),
+          batchLimit,
+        }),
+      });
+      const created = await createRes.json();
+      if (!createRes.ok) throw new Error(created.error?.message || 'Campaign create failed');
+
+      // Request approval
+      const approvalRes = await fetch(`/api/campaigns/${created.id}/request-approval`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ approvalEmail }),
+      });
+      const approval = await approvalRes.json();
+      if (!approvalRes.ok) throw new Error(approval.error || 'Approval request failed');
+
+      setApprovalSent(true);
+      showMsg('✅ Test email sent! Aapke inbox me check karo → "YES SEND TO ALL" dabao', 'success');
+    } catch (e: any) {
+      showMsg('❌ ' + e.message, 'error');
+    }
+    setApprovalBusy(false);
+  };
+
+const launch = async () => {
     if (!allContacts.length) { showMsg('❌ Contacts add karo', 'error'); return; }
     if (!subject.trim()) { showMsg('❌ Subject daalo', 'error'); return; }
 
@@ -701,35 +750,98 @@ export default function NewCampaign() {
       {step === 4 && (
         <div className="card space-y-4">
           <div>
-            <h2 style={{ fontSize: 18, marginBottom: 4 }}>🚀 Step 4 — Final Review</h2>
-            <p style={{ fontSize: 13, color: 'var(--fg-muted)', margin: 0 }}>Sab kuch verify karo, phir launch karo</p>
+            <h2 style={{ fontSize: 18, marginBottom: 4 }}>🚀 Step 4 — Approval Required</h2>
+            <p style={{ fontSize: 13, color: 'var(--fg-muted)', margin: 0 }}>
+              Pehle aapke email pe test bhejenge. Aap approve karo → phir sabko jayegi.
+            </p>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
-            <div style={{ background: 'var(--bg-subtle)', borderRadius: 12, padding: 16 }}>
+          {/* Campaign summary */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+            <div style={{ background: 'var(--bg-subtle)', borderRadius: 12, padding: 14 }}>
               <div style={{ fontSize: 11, color: 'var(--fg-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Campaign</div>
-              <div style={{ fontSize: 15, fontWeight: 600, marginTop: 4 }}>{name}</div>
+              <div style={{ fontSize: 14, fontWeight: 600, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
             </div>
-            <div style={{ background: 'var(--bg-subtle)', borderRadius: 12, padding: 16 }}>
+            <div style={{ background: 'var(--bg-subtle)', borderRadius: 12, padding: 14 }}>
               <div style={{ fontSize: 11, color: 'var(--fg-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Subject</div>
-              <div style={{ fontSize: 15, fontWeight: 600, marginTop: 4 }}>{subject}</div>
+              <div style={{ fontSize: 14, fontWeight: 600, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{subject}</div>
             </div>
-            <div style={{ background: 'rgba(16,185,129,0.08)', borderRadius: 12, padding: 16 }}>
+            <div style={{ background: 'rgba(16,185,129,0.08)', borderRadius: 12, padding: 14 }}>
               <div style={{ fontSize: 11, color: '#065f46', fontWeight: 700, textTransform: 'uppercase' }}>Recipients</div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: '#059669', marginTop: 4 }}>{allContacts.length}</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: '#059669', marginTop: 4 }}>{allContacts.length.toLocaleString()}</div>
             </div>
-            <div style={{ background: 'var(--bg-subtle)', borderRadius: 12, padding: 16 }}>
+            <div style={{ background: 'var(--bg-subtle)', borderRadius: 12, padding: 14 }}>
               <div style={{ fontSize: 11, color: 'var(--fg-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Batch</div>
-              <div style={{ fontSize: 15, fontWeight: 600, marginTop: 4 }}>{batchLimit} per sender</div>
+              <div style={{ fontSize: 14, fontWeight: 600, marginTop: 4 }}>{batchLimit} per sender</div>
             </div>
           </div>
 
-          <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 12, padding: 14, fontSize: 13, color: '#92400e', lineHeight: 1.5 }}>
-            ⚠️ <b>Launch ke baad:</b> Live Dashboard pe redirect hoga. Worker automatically emails bhejega (sender rotation + warm-up rules ke saath).
+          {/* Approval email input */}
+          <div style={{ padding: 20, background: 'linear-gradient(135deg, rgba(139,92,246,0.06), rgba(236,72,153,0.03))', border: '2px dashed rgba(139,92,246,0.3)', borderRadius: 16 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 8, color: '#6d28d9' }}>
+              📧 Where should we send the test email?
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--fg-muted)', marginBottom: 12 }}>
+              Enter your personal email. You will receive a test with a "YES SEND TO ALL" button. Nothing will be sent until you click it.
+            </div>
+            <input
+              type="email"
+              className="input"
+              placeholder="you@yourcompany.com"
+              value={approvalEmail}
+              onChange={e => setApprovalEmail(e.target.value)}
+              disabled={approvalBusy || approvalSent}
+            />
           </div>
 
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => setStep(3)} className="btn btn-ghost">← Back</button>
+          {/* Step 1: Request Approval */}
+          {!approvalSent ? (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button onClick={() => setStep(3)} className="btn btn-ghost">← Back</button>
+              <button
+                onClick={requestApproval}
+                disabled={approvalBusy || !approvalEmail}
+                className="btn btn-primary"
+                style={{ flex: 1, padding: 14, fontSize: 15 }}
+              >
+                {approvalBusy ? '⏳ Sending test...' : '📤 Send Test for Approval'}
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ padding: 20, background: '#f0fdf4', border: '2px solid #10b981', borderRadius: 16, textAlign: 'center' }}>
+                <div style={{ fontSize: 40, marginBottom: 8 }}>✅</div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: '#065f46', marginBottom: 6 }}>
+                  Test email sent to {approvalEmail}
+                </div>
+                <div style={{ fontSize: 13, color: '#047857', marginBottom: 16 }}>
+                  Open your inbox → find the test → click <b>"YES, SEND TO ALL"</b><br />
+                  Nothing will be sent until you approve.
+                </div>
+                <a
+                  href="https://mail.google.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-primary"
+                  style={{ display: 'inline-flex' }}
+                >
+                  📧 Open Gmail
+                </a>
+              </div>
+
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Link href="/dashboard/live" className="btn btn-ghost" style={{ flex: 1, textAlign: 'center' }}>
+                  📊 Go to Dashboard
+                </Link>
+              </div>
+            </div>
+          )}
+
+          <div style={{ fontSize: 11, color: 'var(--fg-dim)', textAlign: 'center' }}>
+            🔒 Safety: Emails will NOT be sent without your approval.
+          </div>
+        </div>
+      )} className="btn btn-ghost">← Back</button>
             <button onClick={launch} disabled={busy} className="btn btn-primary" style={{ flex: 1, padding: 14, fontSize: 15 }}>
               {busy ? '🚀 Launching…' : `🚀 LAUNCH CAMPAIGN — ${allContacts.length} emails`}
             </button>
