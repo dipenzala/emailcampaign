@@ -1,3 +1,23 @@
+#!/usr/bin/env bash
+set -e
+
+echo "==============================================="
+echo " 🏢 FIX: Excel Company Column Detection"
+echo "==============================================="
+
+cd ~/OneDrive/Desktop/EML/emailcampaign 2>/dev/null || cd "$(dirname "$0")" 2>/dev/null || true
+[ -f "package.json" ] || { echo "❌ emailcampaign root me chalao"; exit 1; }
+echo "📁 $(pwd)"
+echo ""
+
+# ═══════════════════════════════════════════
+# 1. REWRITE UPLOAD API — smart column detection
+# ═══════════════════════════════════════════
+echo "📝 [1/4] Rewriting upload API with smart detection..."
+
+mkdir -p app/api/contacts/upload
+
+cat > app/api/contacts/upload/route.ts <<'EOF'
 import { NextResponse } from 'next/server';
 
 export const dynamic = "force-dynamic";
@@ -276,3 +296,174 @@ export async function POST(req: Request) {
     return fail('Server error: ' + (err?.message || 'unknown'), err?.stack?.slice(0, 300), 500);
   }
 }
+EOF
+sed -i 's/\r$//' app/api/contacts/upload/route.ts
+echo "   ✅ Upload API with smart detection"
+
+# ═══════════════════════════════════════════
+# 2. VERIFY CAMPAIGN PAGE — Company column present
+# ═══════════════════════════════════════════
+echo ""
+echo "🎨 [2/4] Ensuring Company column in UI..."
+
+node <<'NODEEOF'
+const fs = require('fs');
+const f = 'app/campaigns/new/page.tsx';
+if (!fs.existsSync(f)) {
+  console.log('   ⚠️  Campaign page not found');
+  process.exit(0);
+}
+
+let c = fs.readFileSync(f, 'utf8');
+
+// Ensure Company column header
+if (!c.includes('>Company</th>')) {
+  c = c.replace(
+    /(<th style=\{\{ textAlign: 'left', padding: 10, color: 'var\(--fg-muted\)', fontWeight: 700 \}\}>Name<\/th>)/,
+    `$1
+                      <th style={{ textAlign: 'left', padding: 10, color: 'var(--fg-muted)', fontWeight: 700 }}>Company</th>`
+  );
+}
+
+// Ensure Company cell
+if (!c.includes("{c.company || '—'}")) {
+  c = c.replace(
+    /(<td style=\{\{ padding: 10, color: 'var\(--fg-muted\)' \}\}>\{c\.name \|\| '—'\}<\/td>)/,
+    `$1
+                        <td style={{ padding: 10, color: 'var(--fg-muted)' }}>{c.company || '—'}</td>`
+  );
+}
+
+fs.writeFileSync(f, c);
+console.log('   ✅ Company column verified');
+NODEEOF
+
+# ═══════════════════════════════════════════
+# 3. Update personalization — company in subject
+# ═══════════════════════════════════════════
+echo ""
+echo "📝 [3/4] Updating subject personalization..."
+
+cat > lib/personalization.ts <<'EOF'
+/**
+ * Personalization + Subject formatting
+ * Priority: name → company → email prefix
+ */
+
+export function renderTemplate(template: string, data: Record<string, any>): string {
+  if (!template) return '';
+  return template.replace(
+    /\{\{\s*(\w+)(?:\s*\|\s*default\s*:\s*"([^"]*)")?\s*\}\}/g,
+    (_m, key, def) => {
+      const v = data[key];
+      if (v === undefined || v === null || v === '') return def ?? '';
+      return String(v);
+    }
+  );
+}
+
+function nameFromEmail(email: string): string {
+  if (!email) return 'Friend';
+  const local = email.split('@')[0] || '';
+  const clean = local.replace(/[._\-0-9]+/g, ' ').trim();
+  const pretty = clean
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ');
+  return pretty || 'Friend';
+}
+
+/**
+ * Get best display label.
+ * Priority: name → company → email prefix
+ */
+export function getRecipientName(data: Record<string, any>): string {
+  const personName = String(data.name || '').trim();
+  if (personName) return personName;
+
+  const company = String(data.company || '').trim();
+  if (company) return company;
+
+  return nameFromEmail(String(data.email || ''));
+}
+
+/**
+ * Format subject with client name (or company) + CONGRATULATIONS prefix.
+ */
+export function formatSubject(subjectTemplate: string, data: Record<string, any>): string {
+  if (!subjectTemplate) return '';
+  const name = getRecipientName(data);
+  const subject = subjectTemplate.trim();
+
+  // If has {{name}} or {{company}} variable — just render
+  if (/\{\{\s*(name|company)/.test(subject)) {
+    return renderTemplate(subject, { ...data, name, company: data.company || name });
+  }
+
+  // If starts with CONGRATULATIONS
+  const upperSubject = subject.toUpperCase();
+  if (upperSubject.startsWith('CONGRATULATIONS')) {
+    const rest = subject.replace(/^congratulations[\s🎉🎊!.,]*/i, '').trim();
+    return rest
+      ? `CONGRATULATIONS 🎉 ${name} — ${rest}`
+      : `CONGRATULATIONS 🎉 ${name}`;
+  }
+
+  // Prepend prefix
+  return `CONGRATULATIONS 🎉 ${name} — ${subject}`;
+}
+
+export function personalize(data: Record<string, any>, subjectTemplate: string, htmlTemplate: string) {
+  return {
+    subject: formatSubject(subjectTemplate, data),
+    html: renderTemplate(htmlTemplate, data),
+  };
+}
+EOF
+sed -i 's/\r$//' lib/personalization.ts
+echo "   ✅ Personalization updated"
+
+# ═══════════════════════════════════════════
+# 4. Git push
+# ═══════════════════════════════════════════
+echo ""
+echo "🌿 [4/4] Git push..."
+git config --local user.email "63999328+dipenzala@users.noreply.github.com"
+git config --local user.name "Dipen Zala"
+
+git add -A
+git diff --cached --quiet || git commit -m "Fix: smart Excel detection — 2nd column = company when only 2 columns"
+
+git push -u origin main 2>&1 | tail -5
+
+echo ""
+echo "==============================================="
+echo " ✅ SMART EXCEL DETECTION DEPLOYED"
+echo "==============================================="
+echo ""
+echo "🎯 Kaise Kaam Karega:"
+echo ""
+echo "Aapki Excel (2 columns):"
+echo "   | Company Name | Email            |"
+echo "   |--------------|------------------|"
+echo "   | Acme Corp    | rahul@company.com|"
+echo ""
+echo "Detection logic:"
+echo "   1. Email column → detect by header OR by '@' value"
+echo "   2. Other 1 column → treat as COMPANY"
+echo "   3. Company detected → use in 'Company' field"
+echo ""
+echo "Subject me:"
+echo "   'Congratulations' → 'CONGRATULATIONS 🎉 Acme Corp'"
+echo "   (uses company if name empty)"
+echo ""
+echo "Smart rules:"
+echo "   • 2 columns: email + X → X = company"
+echo "   • 3+ columns: check headers for 'company', 'org', 'business'"
+echo "   • Name only if header is 'name', 'fullname', 'firstname'"
+echo ""
+echo "⏱️  2-3 min me Vercel deploy hoga"
+echo ""
+echo "📱 Test: /campaigns/new → Excel upload karo"
+echo "==============================================="

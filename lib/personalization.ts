@@ -1,11 +1,8 @@
 /**
- * Personalization engine for email subject + HTML.
- * Subject format: "CONGRATULATIONS 🎉 [Company Name]"
+ * Personalization + Subject formatting
+ * Priority: name → company → email prefix
  */
 
-/**
- * Render template string with data.
- */
 export function renderTemplate(template: string, data: Record<string, any>): string {
   if (!template) return '';
   return template.replace(
@@ -18,91 +15,58 @@ export function renderTemplate(template: string, data: Record<string, any>): str
   );
 }
 
-/**
- * Extract company from email domain.
- * Fallback if company field is empty.
- *
- * Examples:
- *   rahul@acmecorp.com       → "Acmecorp"
- *   priya@tech-startup.io    → "Tech Startup"
- *   amit@mycompany.co.in     → "Mycompany"
- */
-function companyFromEmail(email: string): string {
+function nameFromEmail(email: string): string {
   if (!email) return 'Friend';
-  const domain = email.split('@')[1] || '';
-  if (!domain) return 'Friend';
-
-  // Remove common TLDs
-  const parts = domain.split('.');
-  const name = parts[0] || '';
-
-  // Skip generic providers
-  const generic = ['gmail', 'yahoo', 'hotmail', 'outlook', 'live', 'icloud', 'aol', 'protonmail', 'zoho', 'yandex'];
-  if (generic.includes(name.toLowerCase())) {
-    return 'Friend';
-  }
-
-  // Clean: remove hyphens, underscores; capitalize
-  const clean = name.replace(/[._\-]+/g, ' ').trim();
+  const local = email.split('@')[0] || '';
+  const clean = local.replace(/[._\-0-9]+/g, ' ').trim();
   const pretty = clean
     .split(/\s+/)
     .filter(Boolean)
     .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
     .join(' ');
-
   return pretty || 'Friend';
 }
 
 /**
- * ⭐ Get best display name — COMPANY first, then email fallback.
+ * Get best display label.
+ * Priority: name → company → email prefix
  */
-export function getRecipientCompany(data: Record<string, any>): string {
+export function getRecipientName(data: Record<string, any>): string {
+  const personName = String(data.name || '').trim();
+  if (personName) return personName;
+
   const company = String(data.company || '').trim();
   if (company) return company;
-  return companyFromEmail(String(data.email || ''));
+
+  return nameFromEmail(String(data.email || ''));
 }
 
 /**
- * ⭐ Format subject with COMPANY NAME + CONGRATULATIONS prefix.
- *
- * Rules:
- *  1. If subject already has {{company}} → render it
- *  2. If subject starts with "CONGRATULATIONS" → append company name only
- *  3. Else → prepend "CONGRATULATIONS 🎉 [Company] — " before original subject
- *
- * Examples:
- *   Template: "Congratulations", Company: "Acme Corp"
- *     → "CONGRATULATIONS 🎉 Acme Corp"
- *
- *   Template: "Big Sale Today", Company: "Startup IO"
- *     → "CONGRATULATIONS 🎉 Startup IO — Big Sale Today"
+ * Format subject with client name (or company) + CONGRATULATIONS prefix.
  */
 export function formatSubject(subjectTemplate: string, data: Record<string, any>): string {
   if (!subjectTemplate) return '';
-  const company = getRecipientCompany(data);
+  const name = getRecipientName(data);
   const subject = subjectTemplate.trim();
 
-  // Rule 1: If already has {{company}} → render
-  if (/\{\{\s*company/.test(subject)) {
-    return renderTemplate(subject, { ...data, company });
+  // If has {{name}} or {{company}} variable — just render
+  if (/\{\{\s*(name|company)/.test(subject)) {
+    return renderTemplate(subject, { ...data, name, company: data.company || name });
   }
 
-  // Rule 2: Starts with CONGRATULATIONS
+  // If starts with CONGRATULATIONS
   const upperSubject = subject.toUpperCase();
   if (upperSubject.startsWith('CONGRATULATIONS')) {
     const rest = subject.replace(/^congratulations[\s🎉🎊!.,]*/i, '').trim();
     return rest
-      ? `CONGRATULATIONS 🎉 ${company} — ${rest}`
-      : `CONGRATULATIONS 🎉 ${company}`;
+      ? `CONGRATULATIONS 🎉 ${name} — ${rest}`
+      : `CONGRATULATIONS 🎉 ${name}`;
   }
 
-  // Rule 3: Prepend
-  return `CONGRATULATIONS 🎉 ${company} — ${subject}`;
+  // Prepend prefix
+  return `CONGRATULATIONS 🎉 ${name} — ${subject}`;
 }
 
-/**
- * Full personalization helper.
- */
 export function personalize(data: Record<string, any>, subjectTemplate: string, htmlTemplate: string) {
   return {
     subject: formatSubject(subjectTemplate, data),
