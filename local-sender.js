@@ -301,11 +301,31 @@ async function processOne(r) {
   }
 }
 
+// ⚡ DAILY RESET helper
+async function autoResetIfNewDay() {
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const stale = await prisma.senderAccount.findMany({
+    where: { lastResetAt: { lt: startOfToday } },
+    select: { id: true, email: true, sentToday: true },
+  });
+  if (stale.length === 0) return 0;
+  await prisma.senderAccount.updateMany({
+    where: { id: { in: stale.map(s => s.id) } },
+    data: { sentToday: 0, batchCount: 0, lastResetAt: new Date() },
+  });
+  console.log(`🔄 [daily-reset] Reset ${stale.length} sender(s)`);
+  return stale.length;
+}
+
 let busy = false;
 async function poll() {
   if (busy) return;
   busy = true;
   try {
+    // Daily reset check
+    await autoResetIfNewDay().catch(() => {});
+    
     const recips = await prisma.campaignRecipient.findMany({
       where: { status: 'QUEUED', campaign: { status: 'RUNNING' } },
       include: { contact: true },

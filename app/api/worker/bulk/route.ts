@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { autoResetIfNewDay } from '@/lib/daily-reset';
 import { prisma } from '@/lib/prisma';
 import { decrypt } from '@/lib/crypto';
 import { oauthClient } from '@/lib/gmail';
@@ -29,6 +30,16 @@ async function handle(req: Request) {
     const url = new URL(req.url);
     const BATCH = Math.min(50, Math.max(1, parseInt(url.searchParams.get('batch') || '5', 10) || 5));
     results.batchSize = BATCH;
+
+    // ⚡ DAILY RESET (midnight 00:00 server time)
+    try {
+      const resetInfo = await autoResetIfNewDay();
+      if (resetInfo.reset > 0) {
+        results.dailyReset = resetInfo.reset;
+      }
+    } catch (e: any) {
+      console.log('[bulk] daily-reset error:', e.message);
+    }
 
     // Self-heal
     try {

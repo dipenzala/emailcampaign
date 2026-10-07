@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { autoResetIfNewDay } from '@/lib/daily-reset';
 import { prisma } from '@/lib/prisma';
 import { decrypt } from '@/lib/crypto';
 import { oauthClient } from '@/lib/gmail';
@@ -15,6 +16,12 @@ export async function GET() { return handle(); }
 export async function POST() { return handle(); }
 
 async function handle() {
+  // ⚡ DAILY RESET
+  try {
+    const resetInfo = await autoResetIfNewDay();
+    if (resetInfo.reset > 0) results.dailyReset = resetInfo.reset;
+  } catch {}
+
   const results: any = { ok: true, processed: 0, sent: 0, failed: 0, remaining: 0, errors: [] };
 
   try {

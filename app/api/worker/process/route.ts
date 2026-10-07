@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { autoResetIfNewDay } from '@/lib/daily-reset';
 import { prisma } from '@/lib/prisma';
 import { decrypt } from '@/lib/crypto';
 import { oauthClient } from '@/lib/gmail';
@@ -23,6 +24,14 @@ async function handle() {
   const results: any = { ok: true, processed: 0, sent: 0, failed: 0, remaining: 0, errors: [], elapsed: 0 };
 
   try {
+    // ⚡ DAILY RESET
+    try {
+      const resetInfo = await autoResetIfNewDay();
+      if (resetInfo.reset > 0) results.dailyReset = resetInfo.reset;
+    } catch (e: any) {
+      console.log('[process] daily-reset error:', e.message);
+    }
+
     // Self-heal
     try {
       const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000);
