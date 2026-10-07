@@ -8,6 +8,8 @@ const NAV_SECTIONS = [
     items: [
       { href: '/dashboard/live', label: 'Live Dashboard', icon: '📊' },
       { href: '/campaigns/new', label: 'New Campaign', icon: '✉️' },
+      { href: '/campaigns/scheduled', label: 'Scheduled Bulk', icon: '⏰' },
+      { href: '/campaigns/scheduled/new', label: 'New Scheduled', icon: '📅' },
       { href: '/history', label: 'Campaign History', icon: '📜' },
     ],
   },

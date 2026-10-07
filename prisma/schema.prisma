@@ -152,6 +152,14 @@ model Campaign {
   openedCount     Int      @default(0)
   clickedCount    Int      @default(0)
 
+  // ═══ Scheduling fields (new) ═══
+  campaignType             String   @default("normal")
+  scheduleStartHour        Int      @default(10)
+  scheduleStartMinute      Int      @default(0)
+  scheduleDurationMinutes  Int      @default(120)
+  lastActiveDate           DateTime?
+  nextRunAt                DateTime?
+
 }
 
 model CampaignRecipient {
