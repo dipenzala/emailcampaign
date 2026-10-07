@@ -41,7 +41,7 @@ async function handle(req: Request) {
 
   try {
     const url = new URL(req.url);
-    const BATCH = Math.min(50, Math.max(1, parseInt(url.searchParams.get('batch') || '5', 10) || 5));
+    const BATCH = Math.min(50, Math.max(1, parseInt(url.searchParams.get('batch') || '3', 10) || 5));
     results.batchSize = BATCH;
 
     // ⚡ DAILY RESET (midnight 00:00 server time)
@@ -84,6 +84,10 @@ async function handle(req: Request) {
     }
 
     // Process each
+    // ⚡ SPAM SAFE: delay between sends
+    const delayMs = Math.min(2500, Math.max(800, 1500 / BATCH));
+    const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
     for (const r of recips) {
       results.processed++;
       try {
@@ -188,9 +192,14 @@ async function handle(req: Request) {
             errorMessage: null,
           },
         });
+        // Accurate recalc (prevents SENT > TOTAL)
+        const [accSent, accTotal] = await Promise.all([
+          prisma.campaignRecipient.count({ where: { campaignId: campaign.id, status: 'SENT' } }),
+          prisma.campaignRecipient.count({ where: { campaignId: campaign.id } }),
+        ]);
         await prisma.campaign.update({
           where: { id: campaign.id },
-          data: { sentCount: { increment: 1 } },
+          data: { sentCount: accSent, totalCount: accTotal },
         });
         await markSenderUsed(sender.id);
 

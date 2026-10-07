@@ -140,9 +140,13 @@ async function handle() {
             sentAt: new Date(),
           },
         });
+        const [accSent, accTotal] = await Promise.all([
+          prisma.campaignRecipient.count({ where: { campaignId: campaign.id, status: 'SENT' } }),
+          prisma.campaignRecipient.count({ where: { campaignId: campaign.id } }),
+        ]);
         await prisma.campaign.update({
           where: { id: campaign.id },
-          data: { sentCount: { increment: 1 } },
+          data: { sentCount: accSent, totalCount: accTotal },
         });
         await markSenderUsed(sender.id);
         results.sent++;
