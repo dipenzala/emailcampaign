@@ -54,7 +54,7 @@ export default function NewCampaign() {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [name, setName] = useState('Campaign ' + new Date().toISOString().slice(0, 10));
-  const [subject, setSubject] = useState('');
+  const [subject, setSubject] = useState('CONGRATULATIONS 🎉');
   const [html, setHtml] = useState('<!DOCTYPE html>\n<html>\n<body>\n<h1>Hello {{name}}</h1>\n<p>Update for {{company}}.</p>\n<p><a href="https://example.com/unsubscribe">Unsubscribe</a></p>\n</body>\n</html>');
   const [batchLimit, setBatchLimit] = useState(1);
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -296,7 +296,7 @@ export default function NewCampaign() {
 
   const hasContacts = allContacts.length > 0;
   const canGoStep2 = hasContacts;
-  const canGoStep3 = subject.trim().length > 0 && html.trim().length > 0;
+  const canGoStep3 = subject.trim().length > 5 && html.trim().length > 20;
 
   const StepDot = ({ n, active, done }: { n: number; active: boolean; done: boolean }) => (
     <div style={{
@@ -583,12 +583,12 @@ export default function NewCampaign() {
 
           <div>
             <label style={{ fontSize: 12, color: 'var(--fg-muted)', display: 'block', marginBottom: 6, fontWeight: 600 }}>Subject *</label>
-            <input className="input" placeholder="Hello {{name}}, quick update" value={subject} onChange={e => setSubject(e.target.value)} />
+            <input className="input" placeholder="Hello {{name}}, quick update" value={subject} onChange={e => { setSubject(e.target.value); if (msg) setMsg(''); }} />
           </div>
 
           <div>
             <label style={{ fontSize: 12, color: 'var(--fg-muted)', display: 'block', marginBottom: 6, fontWeight: 600 }}>HTML Body *</label>
-            <textarea className="input font-mono" style={{ fontSize: 12, minHeight: 200, resize: 'vertical' }} value={html} onChange={e => setHtml(e.target.value)} />
+            <textarea className="input font-mono" style={{ fontSize: 12, minHeight: 200, resize: 'vertical' }} value={html} onChange={e => { setHtml(e.target.value); if (msg) setMsg(''); }} />
           </div>
 
           <div style={{ padding: 16, background: 'rgba(139,92,246,0.05)', border: '1px solid rgba(139,92,246,0.2)', borderRadius: 12 }}>

@@ -1,3 +1,23 @@
+#!/usr/bin/env bash
+set -e
+
+echo "==============================================="
+echo " 🔧 FIX: Subject Auto + Company Column"
+echo "==============================================="
+
+cd ~/OneDrive/Desktop/EML/emailcampaign 2>/dev/null || cd "$(dirname "$0")" 2>/dev/null || true
+[ -f "package.json" ] || { echo "❌ emailcampaign root me chalao"; exit 1; }
+echo "📁 $(pwd)"
+echo ""
+
+# ═══════════════════════════════════════════
+# 1. FIX UPLOAD API — force header detection
+# ═══════════════════════════════════════════
+echo "📝 [1/4] Fixing upload API (force header detection)..."
+
+mkdir -p app/api/contacts/upload
+
+cat > app/api/contacts/upload/route.ts <<'EOF'
 import { NextResponse } from 'next/server';
 
 export const dynamic = "force-dynamic";
@@ -241,3 +261,138 @@ export async function POST(req: Request) {
     return fail('Server error: ' + (err?.message || 'unknown'), err?.stack?.slice(0, 300), 500);
   }
 }
+EOF
+sed -i 's/\r$//' app/api/contacts/upload/route.ts
+echo "   ✅ Upload API fixed"
+
+# ═══════════════════════════════════════════
+# 2. FIX CAMPAIGN PAGE — subject default + clear error + company column
+# ═══════════════════════════════════════════
+echo ""
+echo "🎨 [2/4] Fixing campaign page..."
+
+mkdir -p app/campaigns/new
+
+# Read existing file and patch specific parts
+node <<'NODEEOF'
+const fs = require('fs');
+const f = 'app/campaigns/new/page.tsx';
+if (!fs.existsSync(f)) process.exit(0);
+
+let c = fs.readFileSync(f, 'utf8');
+
+// 1. Auto-populate subject
+c = c.replace(
+  /const \[subject, setSubject\] = useState\(''\);/,
+  `const [subject, setSubject] = useState('CONGRATULATIONS 🎉');`
+);
+
+// 2. Clear msg on any input change
+c = c.replace(
+  /onChange=\{e => setSubject\(e\.target\.value\)\}/,
+  `onChange={e => { setSubject(e.target.value); if (msg) setMsg(''); }}`
+);
+c = c.replace(
+  /onChange=\{e => setHtml\(e\.target\.value\)\}/,
+  `onChange={e => { setHtml(e.target.value); if (msg) setMsg(''); }}`
+);
+
+// 3. Make canGoStep3 more lenient
+c = c.replace(
+  /const canGoStep3 = subject\.trim\(\)\.length > 0 && html\.trim\(\)\.length > 0;/,
+  `const canGoStep3 = subject.trim().length > 5 && html.trim().length > 20;`
+);
+
+fs.writeFileSync(f, c);
+console.log('   ✅ Campaign page patched');
+NODEEOF
+
+# ═══════════════════════════════════════════
+# 3. ENSURE Company column in preview table
+# ═══════════════════════════════════════════
+echo ""
+echo "🏢 [3/4] Ensuring Company column..."
+
+node <<'NODEEOF'
+const fs = require('fs');
+const f = 'app/campaigns/new/page.tsx';
+if (!fs.existsSync(f)) process.exit(0);
+
+let c = fs.readFileSync(f, 'utf8');
+
+// Replace whole table header + body for the merged preview
+// Find existing table structure and ensure 3 columns
+if (!c.includes('>Email</th>') || !c.includes('>Company</th>')) {
+  // Replace the whole preview contacts table
+  const tableRegex = /<table style=\{\{ width: '100%', fontSize: 12, borderCollapse: 'collapse' \}\}>[\s\S]*?<\/table>/;
+
+  const newTable = `<table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+                  <thead style={{ background: 'var(--bg-subtle)', position: 'sticky', top: 0, zIndex: 1 }}>
+                    <tr>
+                      <th style={{ textAlign: 'left', padding: 10, width: 40, color: 'var(--fg-muted)', fontWeight: 700 }}>#</th>
+                      <th style={{ textAlign: 'left', padding: 10, color: 'var(--fg-muted)', fontWeight: 700 }}>Email</th>
+                      <th style={{ textAlign: 'left', padding: 10, color: 'var(--fg-muted)', fontWeight: 700 }}>Company</th>
+                      <th style={{ width: 40 }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allContacts.map((c, i) => (
+                      <tr key={c.email + i} style={{ borderTop: '1px solid var(--border)' }}>
+                        <td style={{ padding: 10, color: 'var(--fg-dim)' }}>{i + 1}</td>
+                        <td style={{ padding: 10, fontFamily: 'ui-monospace, monospace' }}>{c.email}</td>
+                        <td style={{ padding: 10, color: 'var(--fg-muted)' }}>{c.company || c.name || '—'}</td>
+                        <td style={{ padding: 10 }}>
+                          <button onClick={() => removeContact(c.email)} style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 14 }}>✕</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>`;
+
+  c = c.replace(tableRegex, newTable);
+}
+
+fs.writeFileSync(f, c);
+console.log('   ✅ Preview table updated (Email + Company)');
+NODEEOF
+
+# ═══════════════════════════════════════════
+# 4. Git push
+# ═══════════════════════════════════════════
+echo ""
+echo "🌿 [4/4] Git push..."
+git config --local user.email "63999328+dipenzala@users.noreply.github.com"
+git config --local user.name "Dipen Zala"
+
+git add -A
+git diff --cached --quiet || git commit -m "Fix: 2-column Excel detection + subject auto + company preview"
+
+git push -u origin main 2>&1 | tail -5
+
+echo ""
+echo "==============================================="
+echo " ✅ FIXED"
+echo "==============================================="
+echo ""
+echo "🎯 Kya fix hua:"
+echo ""
+echo "1. 📝 Subject auto-populated:"
+echo "   → Default: 'CONGRATULATIONS 🎉'"
+echo "   → Purane error stale clear honge"
+echo "   → Typing pe bhi clear hoga"
+echo ""
+echo "2. 📧 Excel 2-column detection:"
+echo "   → Column 1 (Email) → detected by header OR @ value"
+echo "   → Column 2 → auto-treated as COMPANY"
+echo "   → Preview me 'Company' header + values"
+echo ""
+echo "3. 🏢 Preview table:"
+echo "   → Columns: # | Email | Company | ✕"
+echo "   → Company value dikhega (ya Name fallback)"
+echo ""
+echo "⏱️  2-3 min me Vercel deploy hoga"
+echo ""
+echo "⚠️  IMPORTANT — Purana Excel re-upload karo:"
+echo "   Naya detection apply hone ke liye"
+echo "   Purana data use mat karo"
+echo "==============================================="
