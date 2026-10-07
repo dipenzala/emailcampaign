@@ -1,8 +1,10 @@
-/**
- * Personalization + Subject formatting
- * Priority: name → company → email prefix
- */
+// ═══════════════════════════════════════════
+// PERSONALIZATION — clean & reliable
+// ═══════════════════════════════════════════
 
+/**
+ * Replace {{variable}} in template.
+ */
 export function renderTemplate(template: string, data: Record<string, any>): string {
   if (!template) return '';
   return template.replace(
@@ -15,61 +17,91 @@ export function renderTemplate(template: string, data: Record<string, any>): str
   );
 }
 
-function nameFromEmail(email: string): string {
+/**
+ * Get display label from contact.
+ * Priority: name → company → email prefix
+ */
+export function getDisplayLabel(contact: {
+  name?: string | null;
+  company?: string | null;
+  email?: string | null;
+}): string {
+  const name = String(contact?.name || '').trim();
+  if (name) return name;
+
+  const company = String(contact?.company || '').trim();
+  if (company) return company;
+
+  const email = String(contact?.email || '').trim();
   if (!email) return 'Friend';
+
   const local = email.split('@')[0] || '';
   const clean = local.replace(/[._\-0-9]+/g, ' ').trim();
-  const pretty = clean
+  if (!clean) return 'Friend';
+
+  return clean
     .split(/\s+/)
     .filter(Boolean)
     .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
     .join(' ');
-  return pretty || 'Friend';
 }
 
 /**
- * Get best display label.
- * Priority: name → company → email prefix
+ * ⭐ Format subject with recipient label.
+ *
+ * Rules:
+ *  1. Subject has {{name}} or {{company}} → render directly
+ *  2. Subject starts with "CONGRATULATIONS" → prepend label
+ *  3. Else → "CONGRATULATIONS 🎉 [Label] — original subject"
  */
-export function getRecipientName(data: Record<string, any>): string {
-  const personName = String(data.name || '').trim();
-  if (personName) return personName;
-
-  const company = String(data.company || '').trim();
-  if (company) return company;
-
-  return nameFromEmail(String(data.email || ''));
-}
-
-/**
- * Format subject with client name (or company) + CONGRATULATIONS prefix.
- */
-export function formatSubject(subjectTemplate: string, data: Record<string, any>): string {
+export function formatSubject(
+  subjectTemplate: string,
+  contact: { name?: string | null; company?: string | null; email?: string | null }
+): string {
   if (!subjectTemplate) return '';
-  const name = getRecipientName(data);
+
+  const label = getDisplayLabel(contact);
   const subject = subjectTemplate.trim();
 
-  // If has {{name}} or {{company}} variable — just render
-  if (/\{\{\s*(name|company)/.test(subject)) {
-    return renderTemplate(subject, { ...data, name, company: data.company || name });
+  // Rule 1: Has variable
+  if (/\{\{\s*(name|company)/i.test(subject)) {
+    return renderTemplate(subject, {
+      name: contact.name || label,
+      company: contact.company || label,
+      email: contact.email || '',
+    });
   }
 
-  // If starts with CONGRATULATIONS
-  const upperSubject = subject.toUpperCase();
-  if (upperSubject.startsWith('CONGRATULATIONS')) {
-    const rest = subject.replace(/^congratulations[\s🎉🎊!.,]*/i, '').trim();
+  // Rule 2: Already starts with CONGRATULATIONS
+  if (/^congratulations/i.test(subject)) {
+    const rest = subject
+      .replace(/^congratulations[\s🎉🎊!.,]*/i, '')
+      .trim();
     return rest
-      ? `CONGRATULATIONS 🎉 ${name} — ${rest}`
-      : `CONGRATULATIONS 🎉 ${name}`;
+      ? `CONGRATULATIONS 🎉 ${label} — ${rest}`
+      : `CONGRATULATIONS 🎉 ${label}`;
   }
 
-  // Prepend prefix
-  return `CONGRATULATIONS 🎉 ${name} — ${subject}`;
+  // Rule 3: Prepend prefix
+  return `CONGRATULATIONS 🎉 ${label} — ${subject}`;
 }
 
-export function personalize(data: Record<string, any>, subjectTemplate: string, htmlTemplate: string) {
+/**
+ * Full personalization (subject + html).
+ */
+export function personalize(
+  contact: { name?: string | null; company?: string | null; email?: string | null; city?: string | null; phone?: string | null },
+  subjectTemplate: string,
+  htmlTemplate: string
+) {
   return {
-    subject: formatSubject(subjectTemplate, data),
-    html: renderTemplate(htmlTemplate, data),
+    subject: formatSubject(subjectTemplate, contact),
+    html: renderTemplate(htmlTemplate, {
+      name: contact.name || '',
+      email: contact.email || '',
+      company: contact.company || '',
+      city: contact.city || '',
+      phone: contact.phone || '',
+    }),
   };
 }

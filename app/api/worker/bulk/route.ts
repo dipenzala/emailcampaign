@@ -1,88 +1,73 @@
 import { NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
+import { decrypt } from '@/lib/crypto';
+import { oauthClient } from '@/lib/gmail';
+import { google } from 'googleapis';
+import { buildMime, htmlToText } from '@/lib/mime';
+import { renderTemplate, formatSubject } from '@/lib/personalization';
+import { pickNextSenderStrict, markSenderUsed } from '@/lib/sender-rotation';
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-function json(data: any, status = 200) {
+function j(data: any, status = 200) {
   return NextResponse.json(data, { status });
 }
 
-export async function GET(req: Request) {
+export async function GET(req: Request) { return handle(req); }
+export async function POST(req: Request) { return handle(req); }
+
+async function handle(req: Request) {
   const t0 = Date.now();
   const results: any = {
-    ok: true,
-    sent: 0,
-    failed: 0,
-    bounced: 0,
-    suppressed: 0,
-    processed: 0,
-    remaining: 0,
-    errors: [],
-    elapsed: 0,
+    ok: true, processed: 0, sent: 0, failed: 0, bounced: 0,
+    suppressed: 0, remaining: 0, errors: [] as string[], elapsed: 0,
   };
 
   try {
     const url = new URL(req.url);
-    const batchSize = Math.min(50, Math.max(1, parseInt(url.searchParams.get('batch') || '5', 10)));
-
-    // Dynamic imports — no top-level crash
-    const { prisma } = await import('@/lib/prisma');
-    const { decrypt, encrypt } = await import('@/lib/crypto');
-    const { oauthClient } = await import('@/lib/gmail');
-    const { google } = await import('googleapis');
-    const { buildMime, htmlToText } = await import('@/lib/mime');
-    const { renderTemplate } = await import('@/lib/personalization');
-    const { pickNextSenderStrict, markSenderUsed } = await import('@/lib/sender-rotation');
-
-    console.log('[bulk] START batch=' + batchSize);
+    const BATCH = Math.min(50, Math.max(1, parseInt(url.searchParams.get('batch') || '5', 10) || 5));
+    results.batchSize = BATCH;
 
     // Self-heal
-    await prisma.campaignRecipient.updateMany({
-      where: { status: 'PROCESSING' },
-      data: { status: 'QUEUED', attemptCount: 0 },
-    }).catch(() => {});
+    try {
+      const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000);
+      await prisma.campaignRecipient.updateMany({
+        where: { status: 'PROCESSING', queuedAt: { lt: twoMinAgo } },
+        data: { status: 'QUEUED' },
+      });
+      await prisma.campaign.updateMany({
+        where: { status: { in: ['PAUSED', 'STOPPED'] }, recipients: { some: { status: 'QUEUED' } } },
+        data: { status: 'RUNNING' },
+      });
+    } catch {}
 
-    await prisma.campaign.updateMany({
-      where: {
-        status: { in: ['PAUSED', 'STOPPED'] },
-        recipients: { some: { status: 'QUEUED' } },
-      },
-      data: { status: 'RUNNING' },
-    }).catch(() => {});
-
-    // Fetch queued
+    // Fetch queued with contact
     const recips = await prisma.campaignRecipient.findMany({
-      where: {
-        status: 'QUEUED',
-        campaign: { status: 'RUNNING' },
-      },
+      where: { status: 'QUEUED', campaign: { status: 'RUNNING' } },
       include: { contact: true, campaign: true },
-      take: batchSize,
+      take: BATCH,
       orderBy: { queuedAt: 'asc' },
     });
 
-    console.log('[bulk] Found', recips.length, 'queued');
-
     if (recips.length === 0) {
-      const remaining = await prisma.campaignRecipient.count({
+      results.remaining = await prisma.campaignRecipient.count({
         where: { status: 'QUEUED', campaign: { status: 'RUNNING' } },
       });
-      results.remaining = remaining;
       results.elapsed = Date.now() - t0;
-      return json({ ...results, message: 'No queued recipients' });
+      return j({ ...results, message: 'No queued recipients' });
     }
 
+    // Process each
     for (const r of recips) {
       results.processed++;
       try {
-        const campaign = r.campaign;
         const contact = r.contact;
+        const campaign = r.campaign;
 
         // Suppression
-        const sup = await prisma.suppressionList.findUnique({
-          where: { email: contact.email },
-        });
+        const sup = await prisma.suppressionList.findUnique({ where: { email: contact.email } });
         if (sup) {
           await prisma.campaignRecipient.update({
             where: { id: r.id },
@@ -97,10 +82,7 @@ export async function GET(req: Request) {
         }
 
         // Pick sender
-        const sender = await pickNextSenderStrict({
-          batchLimit: campaign.batchLimit ?? 1,
-        });
-
+        const sender = await pickNextSenderStrict({ batchLimit: campaign.batchLimit ?? 1 });
         if (!sender) {
           results.errors.push('No sender available');
           break;
@@ -112,25 +94,33 @@ export async function GET(req: Request) {
           data: { status: 'PROCESSING', attemptCount: r.attemptCount + 1 },
         });
 
-        // Build email
-        const unsubUrl = `${process.env.APP_URL}/api/unsubscribe/${Buffer.from(contact.email).toString('base64url')}`;
-        let html = renderTemplate(campaign.html, {
-          name: contact.name ?? '',
+        // ═══════════════════════════════════════════
+        // BUILD EMAIL with formatSubject
+        // ═══════════════════════════════════════════
+        const recipientData = {
+          name: contact.name || '',
           email: contact.email,
-          company: contact.company ?? '',
-          city: contact.city ?? '',
-          phone: contact.phone ?? '',
-        });
+          company: contact.company || '',
+          city: contact.city || '',
+          phone: contact.phone || '',
+        };
 
-        // Inject tracking pixel
+        // Format subject
+        const finalSubject = formatSubject(campaign.subject, recipientData);
+
+        // Render HTML
+        let html = renderTemplate(campaign.html, recipientData);
+
+        // Tracking pixel
         const pixel = `<img src="${process.env.APP_URL}/api/track/open/${r.id}" width="1" height="1" style="display:none" alt="" />`;
-        if (/<\/body>/i.test(html)) {
-          html = html.replace(/<\/body>/i, `${pixel}</body>`);
-        } else {
-          html = html + pixel;
-        }
+        html = /<\/body>/i.test(html) ? html.replace(/<\/body>/i, `${pixel}</body>`) : html + pixel;
 
-        // Send via Gmail
+        // Unsubscribe URL
+        const unsubUrl = `${process.env.APP_URL}/api/unsubscribe/${Buffer.from(contact.email).toString('base64url')}`;
+
+        console.log(`[bulk] To: ${contact.email} | Company: "${contact.company}" | Subject: "${finalSubject}"`);
+
+        // Send
         const access = sender.accessToken ? decrypt(sender.accessToken) : '';
         const refresh = decrypt(sender.refreshToken);
         const c = oauthClient();
@@ -140,7 +130,7 @@ export async function GET(req: Request) {
         const raw = buildMime({
           from: `${sender.displayName ?? 'Startup Team'} <${sender.email}>`,
           to: contact.email,
-          subject: campaign.subject,
+          subject: finalSubject,  // ← formatted subject
           html,
           text: htmlToText(html),
           unsubscribeUrl: unsubUrl,
@@ -151,6 +141,7 @@ export async function GET(req: Request) {
           requestBody: { raw: Buffer.from(raw).toString('base64url') },
         });
 
+        // Save to Sent
         try {
           if (res.data.id) {
             await gmail.users.messages.modify({
@@ -161,7 +152,7 @@ export async function GET(req: Request) {
           }
         } catch {}
 
-        // Update recipient
+        // Update DB
         await prisma.campaignRecipient.update({
           where: { id: r.id },
           data: {
@@ -173,18 +164,13 @@ export async function GET(req: Request) {
             errorMessage: null,
           },
         });
-
-        // Update campaign
         await prisma.campaign.update({
           where: { id: campaign.id },
           data: { sentCount: { increment: 1 } },
         });
-
-        // Update sender
         await markSenderUsed(sender.id);
 
         results.sent++;
-        console.log('[bulk] SENT', contact.email);
       } catch (err: any) {
         const msg = err?.message ?? 'Send failed';
         const isBounce = /550|551|552|553|554|5\.1\.1|user unknown|mailbox|invalid/i.test(msg);
@@ -198,7 +184,7 @@ export async function GET(req: Request) {
           await prisma.campaignRecipient.update({
             where: { id: r.id },
             data: { status: 'BOUNCED', errorCode: 'BOUNCED', errorMessage: msg.slice(0, 200) },
-          });
+          }).catch(() => {});
           results.bounced++;
         } else {
           await prisma.campaignRecipient.update({
@@ -207,33 +193,20 @@ export async function GET(req: Request) {
               status: r.attemptCount < 3 ? 'QUEUED' : 'FAILED',
               errorMessage: msg.slice(0, 200),
             },
-          });
+          }).catch(() => {});
           results.failed++;
         }
-        results.errors.push(msg.slice(0, 100));
-        console.error('[bulk] FAIL', r.contact.email, msg);
+        results.errors.push(msg.slice(0, 150));
       }
     }
 
-    // Check complete
-    const remaining = await prisma.campaignRecipient.count({
+    results.remaining = await prisma.campaignRecipient.count({
       where: { status: 'QUEUED', campaign: { status: 'RUNNING' } },
     });
-    results.remaining = remaining;
     results.elapsed = Date.now() - t0;
-
-    return json(results);
+    return j(results);
   } catch (err: any) {
     console.error('[bulk] FATAL:', err);
-    return json({
-      ok: false,
-      error: err?.message || 'Server error',
-      stack: err?.stack?.slice(0, 300),
-      ...results,
-    }, 500);
+    return j({ ok: false, error: err?.message || 'Server error', ...results }, 500);
   }
-}
-
-export async function POST(req: Request) {
-  return GET(req);
 }

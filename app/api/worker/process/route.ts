@@ -1,173 +1,134 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { decrypt, encrypt } from '@/lib/crypto';
+import { decrypt } from '@/lib/crypto';
 import { oauthClient } from '@/lib/gmail';
 import { google } from 'googleapis';
 import { buildMime, htmlToText } from '@/lib/mime';
-import { renderTemplate } from '@/lib/personalization';
+import { renderTemplate, formatSubject } from '@/lib/personalization';
 import { pickNextSenderStrict, markSenderUsed } from '@/lib/sender-rotation';
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const MAX_BATCH = 5;
-
-function json(data: any, status = 200) {
+function j(data: any, status = 200) {
   return NextResponse.json(data, { status });
 }
 
-function injectTrackingPixel(html: string, recipientId: string, appUrl: string): string {
-  const pixel = `<img src="${appUrl}/api/track/open/${recipientId}" width="1" height="1" style="display:none" alt="" />`;
-  if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, `${pixel}</body>`);
-  return html + pixel;
-}
+export async function GET() { return handle(); }
+export async function POST() { return handle(); }
 
-async function sendViaGmail(sender: any, to: string, subject: string, html: string, text: string, unsubUrl?: string) {
-  const access = sender.accessToken ? decrypt(sender.accessToken) : '';
-  const refresh = decrypt(sender.refreshToken);
-  const c = oauthClient();
-  c.setCredentials({ access_token: access, refresh_token: refresh });
-  const gmail = google.gmail({ version: 'v1', auth: c });
-
-  const raw = buildMime({
-    from: `${sender.displayName ?? 'Startup Team'} <${sender.email}>`,
-    to, subject, html, text, unsubscribeUrl: unsubUrl,
-  });
-
-  const res = await gmail.users.messages.send({
-    userId: 'me',
-    requestBody: { raw: Buffer.from(raw).toString('base64url') },
-  });
-
-  try {
-    if (res.data.id) {
-      await gmail.users.messages.modify({
-        userId: 'me',
-        id: res.data.id,
-        requestBody: { addLabelIds: ['SENT'], removeLabelIds: ['INBOX', 'UNREAD'] },
-      });
-    }
-  } catch {}
-
-  return { id: res.data.id, access, refresh };
-}
-
-export async function GET() { return process(); }
-export async function POST() { return process(); }
-
-async function process() {
+async function handle() {
   const t0 = Date.now();
-  const results: any = {
-    ok: true, processed: 0, sent: 0, failed: 0, bounced: 0,
-    suppressed: 0, remaining: 0, errors: [], elapsed: 0,
-  };
+  const results: any = { ok: true, processed: 0, sent: 0, failed: 0, remaining: 0, errors: [], elapsed: 0 };
 
   try {
-    // SELF-HEAL: reset stuck PROCESSING > 2 min old
-    const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000);
-    await prisma.campaignRecipient.updateMany({
-      where: {
-        status: 'PROCESSING',
-        queuedAt: { lt: twoMinAgo },
-      },
-      data: { status: 'QUEUED' },
-    }).catch(() => {});
+    // Self-heal
+    try {
+      const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000);
+      await prisma.campaignRecipient.updateMany({
+        where: { status: 'PROCESSING', queuedAt: { lt: twoMinAgo } },
+        data: { status: 'QUEUED' },
+      });
+      await prisma.campaign.updateMany({
+        where: { status: { in: ['PAUSED', 'STOPPED'] }, recipients: { some: { status: 'QUEUED' } } },
+        data: { status: 'RUNNING' },
+      });
+    } catch {}
 
-    // SELF-HEAL: ensure campaigns with QUEUED are RUNNING
-    await prisma.campaign.updateMany({
-      where: {
-        status: { in: ['PAUSED', 'STOPPED'] },
-        recipients: { some: { status: 'QUEUED' } },
-      },
-      data: { status: 'RUNNING' },
-    }).catch(() => {});
-
-    // Fetch queued
     const recips = await prisma.campaignRecipient.findMany({
-      where: {
-        status: 'QUEUED',
-        campaign: { status: 'RUNNING' },
-      },
+      where: { status: 'QUEUED', campaign: { status: 'RUNNING' } },
       include: { contact: true, campaign: true },
-      take: MAX_BATCH,
+      take: 3,
       orderBy: { queuedAt: 'asc' },
     });
 
     if (recips.length === 0) {
-      const remaining = await prisma.campaignRecipient.count({
+      results.remaining = await prisma.campaignRecipient.count({
         where: { status: 'QUEUED', campaign: { status: 'RUNNING' } },
       });
-      results.remaining = remaining;
       results.elapsed = Date.now() - t0;
-      return json({ ...results, message: 'No queued recipients' });
+      return j({ ...results, message: 'No queued recipients' });
     }
 
     for (const r of recips) {
       results.processed++;
       try {
-        const campaign = r.campaign;
         const contact = r.contact;
+        const campaign = r.campaign;
 
-        // Suppression
-        const sup = await prisma.suppressionList.findUnique({
-          where: { email: contact.email },
-        });
+        const sup = await prisma.suppressionList.findUnique({ where: { email: contact.email } });
         if (sup) {
           await prisma.campaignRecipient.update({
             where: { id: r.id },
             data: { status: 'SUPPRESSED', errorCode: 'SUPPRESSED', errorMessage: sup.reason },
           });
-          await prisma.campaign.update({
-            where: { id: campaign.id },
-            data: { suppressedCount: { increment: 1 } },
-          });
-          results.suppressed++;
           continue;
         }
 
-        // Pick sender
-        const sender = await pickNextSenderStrict({
-          batchLimit: campaign.batchLimit ?? 1,
-        });
+        const sender = await pickNextSenderStrict({ batchLimit: campaign.batchLimit ?? 1 });
+        if (!sender) { results.errors.push('No sender'); break; }
 
-        if (!sender) {
-          results.errors.push('No sender available');
-          break;
-        }
-
-        // Mark processing
         await prisma.campaignRecipient.update({
           where: { id: r.id },
           data: { status: 'PROCESSING', attemptCount: r.attemptCount + 1 },
         });
 
-        // Build email
-        const unsubUrl = `${process.env.APP_URL}/api/unsubscribe/${Buffer.from(contact.email).toString('base64url')}`;
-        let html = renderTemplate(campaign.html, {
-          name: contact.name ?? '',
+        const recipientData = {
+          name: contact.name || '',
           email: contact.email,
-          company: contact.company ?? '',
-          city: contact.city ?? '',
-          phone: contact.phone ?? '',
+          company: contact.company || '',
+          city: contact.city || '',
+          phone: contact.phone || '',
+        };
+
+        const finalSubject = formatSubject(campaign.subject, recipientData);
+        let html = renderTemplate(campaign.html, recipientData);
+
+        const pixel = `<img src="${process.env.APP_URL}/api/track/open/${r.id}" width="1" height="1" style="display:none" alt="" />`;
+        html = /<\/body>/i.test(html) ? html.replace(/<\/body>/i, `${pixel}</body>`) : html + pixel;
+
+        const unsubUrl = `${process.env.APP_URL}/api/unsubscribe/${Buffer.from(contact.email).toString('base64url')}`;
+
+        console.log(`[process] ${contact.email} | Company: "${contact.company}" | Subject: "${finalSubject}"`);
+
+        const access = sender.accessToken ? decrypt(sender.accessToken) : '';
+        const refresh = decrypt(sender.refreshToken);
+        const c = oauthClient();
+        c.setCredentials({ access_token: access, refresh_token: refresh });
+        const gmail = google.gmail({ version: 'v1', auth: c });
+
+        const raw = buildMime({
+          from: `${sender.displayName ?? 'Startup Team'} <${sender.email}>`,
+          to: contact.email,
+          subject: finalSubject,
+          html,
+          text: htmlToText(html),
+          unsubscribeUrl: unsubUrl,
         });
-        html = injectTrackingPixel(html, r.id, process.env.APP_URL || '');
 
-        // Send
-        const { id: providerMessageId, access, refresh } = await sendViaGmail(
-          sender, contact.email, campaign.subject, html, htmlToText(html), unsubUrl
-        );
+        const res = await gmail.users.messages.send({
+          userId: 'me',
+          requestBody: { raw: Buffer.from(raw).toString('base64url') },
+        });
 
-        // Update recipient
+        try {
+          if (res.data.id) {
+            await gmail.users.messages.modify({
+              userId: 'me',
+              id: res.data.id,
+              requestBody: { addLabelIds: ['SENT'], removeLabelIds: ['INBOX', 'UNREAD'] },
+            });
+          }
+        } catch {}
+
         await prisma.campaignRecipient.update({
           where: { id: r.id },
           data: {
             status: 'SENT',
             senderAccountId: sender.id,
-            providerMessageId,
+            providerMessageId: res.data.id,
             sentAt: new Date(),
-            errorCode: null,
-            errorMessage: null,
           },
         });
         await prisma.campaign.update({
@@ -175,61 +136,27 @@ async function process() {
           data: { sentCount: { increment: 1 } },
         });
         await markSenderUsed(sender.id);
-
-        if (access && refresh) {
-          await prisma.senderAccount.update({
-            where: { id: sender.id },
-            data: { accessToken: encrypt(access), refreshToken: encrypt(refresh) },
-          });
-        }
-
         results.sent++;
-
-        // Check complete
-        const remaining = await prisma.campaignRecipient.count({
-          where: { campaignId: campaign.id, status: { in: ['QUEUED', 'PROCESSING'] } },
-        });
-        if (remaining === 0) {
-          await prisma.campaign.update({
-            where: { id: campaign.id },
-            data: { status: 'COMPLETED', completedAt: new Date() },
-          });
-        }
       } catch (err: any) {
-        const msg = err?.message ?? 'Send failed';
-        const code = err?.code ?? err?.response?.status ?? 'ERROR';
-        const isBounce = /550|551|552|553|554|5\.1\.1|user unknown|mailbox|invalid/i.test(msg);
-
-        if (isBounce) {
-          await prisma.suppressionList.upsert({
-            where: { email: r.contact.email },
-            create: { email: r.contact.email, reason: 'BOUNCED' },
-            update: {},
-          }).catch(() => {});
-          await prisma.campaignRecipient.update({
-            where: { id: r.id },
-            data: { status: 'BOUNCED', errorCode: 'BOUNCED', errorMessage: msg.slice(0, 200) },
-          });
-          results.bounced++;
-        } else {
-          await prisma.campaignRecipient.update({
-            where: { id: r.id },
-            data: { status: r.attemptCount < 3 ? 'QUEUED' : 'FAILED', errorMessage: msg.slice(0, 200) },
-          });
-          results.failed++;
-        }
-        results.errors.push(msg.slice(0, 100));
+        const msg = err?.message ?? 'failed';
+        await prisma.campaignRecipient.update({
+          where: { id: r.id },
+          data: {
+            status: r.attemptCount < 3 ? 'QUEUED' : 'FAILED',
+            errorMessage: msg.slice(0, 200),
+          },
+        }).catch(() => {});
+        results.failed++;
+        results.errors.push(msg.slice(0, 150));
       }
     }
 
-    const remaining = await prisma.campaignRecipient.count({
+    results.remaining = await prisma.campaignRecipient.count({
       where: { status: 'QUEUED', campaign: { status: 'RUNNING' } },
     });
-    results.remaining = remaining;
     results.elapsed = Date.now() - t0;
-
-    return json(results);
+    return j(results);
   } catch (err: any) {
-    return json({ ok: false, error: err?.message || 'Server error', ...results }, 500);
+    return j({ ok: false, error: err?.message, ...results }, 500);
   }
 }
