@@ -1,3 +1,31 @@
+#!/usr/bin/env bash
+set -e
+
+echo "==============================================="
+echo " 🔧 FIX: GitHub Actions Workflow Failure"
+echo "==============================================="
+
+cd ~/OneDrive/Desktop/EML/emailcampaign 2>/dev/null || cd "$(dirname "$0")" 2>/dev/null || true
+[ -f "package.json" ] || { echo "❌ emailcampaign root me chalao"; exit 1; }
+echo "📁 $(pwd)"
+echo ""
+
+# ═══════════════════════════════════════════
+# 1. DELETE OLD BROKEN WORKFLOW
+# ═══════════════════════════════════════════
+echo "🗑️  [1/6] Removing old email-bot.yml..."
+
+rm -f .github/workflows/email-bot.yml 2>/dev/null && echo "   ✅ Removed" || echo "   ℹ️  Not found"
+
+# ═══════════════════════════════════════════
+# 2. ROBUST BOT.PARALLEL (no Prisma at module level)
+# ═══════════════════════════════════════════
+echo ""
+echo "🤖 [2/6] Rewriting bot-parallel.js (bulletproof)..."
+
+mkdir -p scripts
+
+cat > scripts/bot-parallel.js <<'EOF'
 #!/usr/bin/env node
 /**
  * PARALLEL BOT — bulletproof version
@@ -376,3 +404,165 @@ async function main() {
 }
 
 main().catch(e => { console.error('❌', e.message); process.exit(1); });
+EOF
+sed -i 's/\r$//' scripts/bot-parallel.js
+chmod +x scripts/bot-parallel.js
+echo "   ✅ scripts/bot-parallel.js (bulletproof)"
+
+# ═══════════════════════════════════════════
+# 3. ROBUST WORKFLOWS (better error handling)
+# ═══════════════════════════════════════════
+echo ""
+echo "⚙️  [3/6] Rewriting workflows..."
+
+mkdir -p .github/workflows
+
+create_workflow() {
+  local BOT_ID=$1
+  local CRON=$2
+  cat > ".github/workflows/bot-${BOT_ID}.yml" <<EOF
+name: 🤖 Bot ${BOT_ID}
+
+on:
+  schedule:
+    - cron: '${CRON}'
+  workflow_dispatch:
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: \${{ runner.os }}-node-\${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            \${{ runner.os }}-node-
+
+      - name: Install dependencies (skip scripts)
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+        env:
+          DATABASE_URL: \${{ secrets.DATABASE_URL }}
+
+      - name: Run Bot
+        env:
+          DATABASE_URL: \${{ secrets.DATABASE_URL }}
+          REDIS_URL: \${{ secrets.REDIS_URL }}
+          GOOGLE_CLIENT_ID: \${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: \${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REDIRECT_URI: \${{ secrets.GOOGLE_REDIRECT_URI }}
+          TOKEN_ENCRYPTION_KEY: \${{ secrets.TOKEN_ENCRYPTION_KEY }}
+          SESSION_SECRET: \${{ secrets.SESSION_SECRET }}
+          APP_URL: \${{ secrets.APP_URL }}
+          NODE_ENV: production
+          BOT_ID: '${BOT_ID}'
+          BOT_BATCH_SIZE: '20'
+          BOT_DELAY_MS: '1200'
+        run: node scripts/bot-parallel.js
+EOF
+  sed -i 's/\r$//' ".github/workflows/bot-${BOT_ID}.yml"
+}
+
+# 3 bots with different times
+create_workflow "bot1" "*/5 * * * *"
+create_workflow "bot2" "2-59/5 * * * *"
+create_workflow "bot3" "4-59/5 * * * *"
+
+echo "   ✅ 3 workflows created"
+echo "      .github/workflows/bot-bot1.yml"
+echo "      .github/workflows/bot-bot2.yml"
+echo "      .github/workflows/bot-bot3.yml"
+
+# ═══════════════════════════════════════════
+# 4. FIX PACKAGE.JSON — bot:parallel script
+# ═══════════════════════════════════════════
+echo ""
+echo "📦 [4/6] Updating package.json..."
+
+node <<'NODEEOF'
+const fs = require('fs');
+const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+pkg.scripts = pkg.scripts || {};
+pkg.scripts['bot:parallel'] = 'node scripts/bot-parallel.js';
+pkg.scripts['bot'] = 'node scripts/bot.js';
+// Add prisma to dependencies (needed for generate in workflow)
+pkg.dependencies = pkg.dependencies || {};
+if (!pkg.dependencies.prisma) pkg.dependencies.prisma = '^5.22.0';
+fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
+console.log('   ✅ package.json updated');
+NODEEOF
+
+# ═══════════════════════════════════════════
+# 5. FIX ATOMIC PICK API — safety check
+# ═══════════════════════════════════════════
+echo ""
+echo "🔒 [5/6] Verifying atomic pick API..."
+
+if [ ! -f "app/api/bot/pick/route.ts" ]; then
+  echo "   ⚠️  Atomic pick API missing — check previous script ran"
+else
+  echo "   ✅ Atomic pick API exists"
+fi
+
+# ═══════════════════════════════════════════
+# 6. GIT PUSH
+# ═══════════════════════════════════════════
+echo ""
+echo "🌿 [6/6] Git push..."
+git config --local user.email "63999328+dipenzala@users.noreply.github.com"
+git config --local user.name "Dipen Zala"
+
+git add -A
+git diff --cached --quiet || git commit -m "Fix: bulletproof workflows + lazy Prisma loading"
+
+git push -u origin main 2>&1 | tail -10
+
+echo ""
+echo "==============================================="
+echo " ✅ FIXED"
+echo "==============================================="
+echo ""
+echo "🎯 Kya fix hua:"
+echo "  ✓ Old email-bot.yml deleted"
+echo "  ✓ bot-parallel.js — lazy Prisma load (no crash)"
+echo "  ✓ 3 new workflows (bot-bot1/2/3)"
+echo "  ✓ Better error handling + non-JSON responses"
+echo "  ✓ Cache for node_modules (faster runs)"
+echo ""
+echo "⏱️  2-3 min me GitHub Actions update hoga"
+echo ""
+echo "📋 AGLE STEPS:"
+echo ""
+echo "1. GitHub Actions kholo:"
+echo "   https://github.com/dipenzala/emailcampaign/actions"
+echo ""
+echo "2. Purane failed runs → 'Delete' nahi chahiye"
+echo "   Naye runs automactically aayenge"
+echo ""
+echo "3. Manual test:"
+echo "   Left side me 3 workflows dikhenge:"
+echo "   • 🤖 Bot bot1"
+echo "   • 🤖 Bot bot2"
+echo "   • 🤖 Bot bot3"
+echo ""
+echo "   Kisi pe click → 'Run workflow' → 'Run workflow'"
+echo ""
+echo "4. Logs check karo:"
+echo "   ✅ [bot] Loading modules..."
+echo "   ✅ [bot] Prisma client loaded"
+echo "   ✅ [bot] Google APIs loaded"
+echo "   📬 Claimed 20 unique emails"
+echo "   ✅ Sent X emails"
+echo ""
+echo "==============================================="
