@@ -1,4 +1,5 @@
 'use client';
+import AutoSendLoop from '@/components/AutoSendLoop';
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -70,6 +71,10 @@ export default function CampaignLive() {
 
   return (
     <div className="space-y-4 md:space-y-6">
+      <AutoSendLoop
+        campaignId={id as string}
+        enabled={s?.status === 'RUNNING'}
+      />
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
