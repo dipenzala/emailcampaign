@@ -1,19 +1,34 @@
-name: 🤖 Email Bot
+name: 🤖 Email Bots (3 Parallel)
 
 on:
+  # Schedule — every 5 min
   schedule:
     - cron: '*/5 * * * *'
+
+  # Manual trigger
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'scripts/bot.js'
-      - '.github/workflows/bot.yml'
+    inputs:
+      batch_size:
+        description: 'Batch size per bot (10-40)'
+        required: false
+        default: '20'
+      mode:
+        description: 'run | once'
+        required: false
+        default: 'run'
+
+  # API trigger from Vercel (repository_dispatch)
+  repository_dispatch:
+    types: [start-campaign]
 
 jobs:
   send:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        bot: [bot1, bot2, bot3]
     steps:
       - uses: actions/checkout@v4
 
@@ -21,14 +36,14 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install
+      - name: Install dependencies
         run: |
           npm install --ignore-scripts --no-audit --no-fund
           npx prisma generate
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
-      - name: Run Bot
+      - name: Run ${{ matrix.bot }}
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           REDIS_URL: ${{ secrets.REDIS_URL }}
@@ -39,5 +54,7 @@ jobs:
           SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
           APP_URL: ${{ secrets.APP_URL }}
           NODE_ENV: production
-          BOT_BATCH_SIZE: '15'
-        run: node scripts/bot.js
+          BOT_ID: ${{ matrix.bot }}
+          BOT_BATCH_SIZE: ${{ github.event.inputs.batch_size || '20' }}
+          BOT_DELAY_MS: '1200'
+        run: node scripts/bot-parallel.js
