@@ -1,0 +1,35 @@
+name: 📧 Email Bot bot2
+
+on:
+  schedule:
+    - cron: '2-59/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install
+        run: |
+          npm install --ignore-scripts --no-audit --no-fund
+          npx prisma generate --no-engine 2>/dev/null || npx prisma generate
+      - name: Run Bot
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REDIRECT_URI: ${{ secrets.GOOGLE_REDIRECT_URI }}
+          TOKEN_ENCRYPTION_KEY: ${{ secrets.TOKEN_ENCRYPTION_KEY }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          APP_URL: ${{ secrets.APP_URL }}
+          NODE_ENV: production
+          BOT_ID: 'bot2'
+          BOT_BATCH_SIZE: '20'
+          BOT_DELAY_MS: '1200'
+        run: node scripts/bot-parallel.js

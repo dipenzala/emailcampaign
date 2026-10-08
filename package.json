@@ -11,7 +11,8 @@
     "db:studio": "prisma studio",
     "postinstall": "echo skipping-postinstall",
     "db:reset-users": "node scripts/pre-migrate.js && prisma db push",
-    "worker:auto": "tsx workers/auto-runner.ts"
+    "worker:auto": "tsx workers/auto-runner.ts",
+    "bot:parallel": "node scripts/bot-parallel.js"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
