@@ -10,42 +10,37 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-function j(data: any, status = 200) {
-  return NextResponse.json(data, { status });
-}
-
-export async function GET() { return handle(5); }
-export async function POST(req: Request) {
-  const body = await req.json().catch(() => ({}));
-  return handle(Math.min(20, Math.max(1, parseInt(body.batchSize || '5', 10))));
-}
-
-async function handle(BATCH: number) {
-  const results: any = {
-    ok: true, processed: 0, sent: 0, failed: 0,
-    suppressed: 0, remaining: 0, errors: [],
-  };
-
+/**
+ * Emergency single-email send API — bypasses worker entirely.
+ * Sends next N queued emails IMMEDIATELY (synchronous).
+ * Use this when worker/bot are broken.
+ */
+export async function POST(req: Request, { params }: { params: { id: string } }) {
   try {
+    const body = await req.json().catch(() => ({}));
+    const BATCH = Math.min(20, Math.max(1, parseInt(body.batchSize || '5', 10)));
+
+    const campaign = await prisma.campaign.findUnique({ where: { id: params.id } });
+    if (!campaign) {
+      return NextResponse.json({ ok: false, error: 'Campaign not found' }, { status: 404 });
+    }
+
     const recips = await prisma.campaignRecipient.findMany({
-      where: {
-        status: 'QUEUED',
-        campaign: { status: 'RUNNING' },
-      },
-      include: { contact: true, campaign: true },
+      where: { campaignId: params.id, status: 'QUEUED' },
+      include: { contact: true },
       take: BATCH,
       orderBy: { queuedAt: 'asc' },
     });
 
     if (recips.length === 0) {
-      results.remaining = await prisma.campaignRecipient.count({
-        where: { status: 'QUEUED', campaign: { status: 'RUNNING' } },
-      });
-      return j({ ...results, message: 'No queued recipients' });
+      return NextResponse.json({ ok: true, sent: 0, message: 'No queued recipients' });
     }
 
+    let sent = 0;
+    let failed = 0;
+    const errors: string[] = [];
+
     for (const r of recips) {
-      results.processed++;
       try {
         // Suppression
         const sup = await prisma.suppressionList.findUnique({ where: { email: r.contact.email } });
@@ -54,11 +49,10 @@ async function handle(BATCH: number) {
             where: { id: r.id },
             data: { status: 'SUPPRESSED', errorCode: 'SUPPRESSED', errorMessage: sup.reason },
           });
-          results.suppressed++;
           continue;
         }
 
-        // Sender
+        // Pick sender
         const sender = await prisma.senderAccount.findFirst({
           where: {
             status: 'CONNECTED',
@@ -70,16 +64,17 @@ async function handle(BATCH: number) {
         });
 
         if (!sender) {
-          results.errors.push('No sender available');
+          errors.push('No sender available');
           break;
         }
 
+        // Mark processing
         await prisma.campaignRecipient.update({
           where: { id: r.id },
           data: { status: 'PROCESSING', attemptCount: r.attemptCount + 1 },
         });
 
-        // Build
+        // Build email
         const data = {
           name: r.contact.name || '',
           email: r.contact.email,
@@ -87,12 +82,14 @@ async function handle(BATCH: number) {
           city: r.contact.city || '',
           phone: r.contact.phone || '',
         };
-        const finalSubject = formatSubject(r.campaign.subject, data);
-        let html = renderTemplate(r.campaign.html, data);
+
+        const finalSubject = formatSubject(campaign.subject, data);
+        let html = renderTemplate(campaign.html, data);
 
         const pixel = `<img src="${process.env.APP_URL}/api/track/open/${r.id}" width="1" height="1" style="display:none" alt="" />`;
         html = /<\/body>/i.test(html) ? html.replace(/<\/body>/i, `${pixel}</body>`) : html + pixel;
 
+        // Send
         const access = sender.accessToken ? decrypt(sender.accessToken) : '';
         const refresh = decrypt(sender.refreshToken);
         const c = oauthClient();
@@ -114,6 +111,18 @@ async function handle(BATCH: number) {
           requestBody: { raw: Buffer.from(raw).toString('base64url') },
         });
 
+        // Save to Sent
+        try {
+          if (res.data.id) {
+            await gmail.users.messages.modify({
+              userId: 'me',
+              id: res.data.id,
+              requestBody: { addLabelIds: ['SENT'], removeLabelIds: ['INBOX', 'UNREAD'] },
+            });
+          }
+        } catch {}
+
+        // Update
         await prisma.campaignRecipient.update({
           where: { id: r.id },
           data: {
@@ -123,9 +132,10 @@ async function handle(BATCH: number) {
             sentAt: new Date(),
           },
         });
+
         await prisma.senderAccount.update({
           where: { id: sender.id },
-          data: { sentToday: { increment: 1 }, batchCount: { increment: 1 }, lastSuccessAt: new Date() },
+          data: { sentToday: { increment: 1 }, lastSuccessAt: new Date() },
         });
 
         if (access && refresh) {
@@ -135,37 +145,39 @@ async function handle(BATCH: number) {
           }).catch(() => {});
         }
 
-        results.sent++;
+        sent++;
+        console.log(`✅ SENT: ${r.contact.email} via ${sender.email}`);
       } catch (err: any) {
-        results.failed++;
-        results.errors.push((err.message || 'unknown').slice(0, 100));
+        failed++;
+        const msg = err.message || 'unknown';
+        errors.push(msg.slice(0, 150));
+        console.error(`❌ Failed: ${r.contact.email}:`, msg);
+
         await prisma.campaignRecipient.update({
           where: { id: r.id },
-          data: { status: 'FAILED', errorMessage: err.message?.slice(0, 200) },
+          data: { status: 'FAILED', errorMessage: msg.slice(0, 200) },
         }).catch(() => {});
       }
     }
 
-    // Recalc counters
-    const campaignIds = [...new Set(recips.map(r => r.campaignId))];
-    for (const cid of campaignIds) {
-      const [s, t] = await Promise.all([
-        prisma.campaignRecipient.count({ where: { campaignId: cid, status: 'SENT' } }),
-        prisma.campaignRecipient.count({ where: { campaignId: cid } }),
-      ]);
-      await prisma.campaign.update({
-        where: { id: cid },
-        data: { sentCount: s, totalCount: t },
-      }).catch(() => {});
-    }
+    // Recalc campaign counters
+    const [accSent, accTotal] = await Promise.all([
+      prisma.campaignRecipient.count({ where: { campaignId: params.id, status: 'SENT' } }),
+      prisma.campaignRecipient.count({ where: { campaignId: params.id } }),
+    ]);
+    await prisma.campaign.update({
+      where: { id: params.id },
+      data: { sentCount: accSent, totalCount: accTotal },
+    }).catch(() => {});
 
-    results.remaining = await prisma.campaignRecipient.count({
-      where: { status: 'QUEUED', campaign: { status: 'RUNNING' } },
+    return NextResponse.json({
+      ok: true,
+      sent,
+      failed,
+      errors: errors.slice(0, 5),
     });
-
-    return j(results);
   } catch (err: any) {
-    console.error('[process] FATAL:', err);
-    return j({ ok: false, error: err.message, ...results }, 500);
+    console.error('[send-one] FATAL:', err);
+    return NextResponse.json({ ok: false, error: err.message }, { status: 500 });
   }
 }
